@@ -1,8 +1,6 @@
-import java.io.DataInputStream;
-import java.io.File;
-import java.io.FileOutputStream;
+import java.io.*;
 import java.net.*;
-
+import java.lang.*;
 public class FileServer {
 
 
@@ -20,6 +18,12 @@ public class FileServer {
             while (true) {
                 Socket socket = serverSocket.accept();
                 System.out.println("一个客户端已连接：" + socket.getRemoteSocketAddress());
+                // 先进行身份认证 当用户身份验证不通过时断开连接
+                if (!SecurityServerHandler.handleAuthentication(socket)) {
+                    System.out.println("Authentication failed for client: " + socket.getInetAddress());
+                    socket.close();
+                    return;
+                }
 
                 // 为每个客户端连接创建一个新的线程来处理文件传输
                 // (这是为后续多线程改造预留的思路，目前先在主线程处理)
@@ -66,8 +70,14 @@ public class FileServer {
 
             System.out.println("文件接收完毕，保存在: " + file.getAbsolutePath());
             System.out.println("----------------------------------------");
+            // 传输完成后发送校验和
+            long checksum = FileIntegrityChecker.calculateCRC32(file);//file为传输完成的文件，发送校验码。
+            try (DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
+                dos.writeLong(checksum);
+            }
 
-        } catch (Exception e) {
+        }
+        catch (Exception  e) {
             System.err.println("与客户端 " + socket.getRemoteSocketAddress() + " 的连接出错: " + e.getMessage());
         } finally {
             try {

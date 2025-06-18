@@ -1,3 +1,4 @@
+import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -10,6 +11,8 @@ public class FileClient {
         try (DatagramSocket socket = new DatagramSocket()) {
             // 设置5秒超时，防止服务器没响应时无限等待
             socket.setSoTimeout(5000);
+
+
 
             // 1. 准备并发送请求包
             String requestMessage = "LIST_FILES";
@@ -73,6 +76,12 @@ public class FileClient {
         requestFileList(serverIP);
         System.out.println("----------------------------\n");
         try {
+            // 1. 创建 Socket，连接到服务器的 9999 端口
+            // "127.0.0.1" 或 "localhost" 代表本机
+            Socket socket = new Socket(serverIP, 9999);
+            System.out.println("--- 已连接到服务器 ---");
+            // 处理身份认证 校验身份
+            SecurityClientHandler.handleAuthentication(socket);
             // 要发送的文件的路径 (为了测试，可以先写死)
             // 在你的项目根目录下创建一个名为 "test.txt" 的文件用于测试
             // 1. 调用文件选择器，让用户选择文件
@@ -83,10 +92,7 @@ public class FileClient {
                 System.out.println("没有选择任何文件，程序退出。");
                 return; // 退出程序
             }
-            // 1. 创建 Socket，连接到服务器的 9999 端口
-            // "127.0.0.1" 或 "localhost" 代表本机
-            Socket socket = new Socket(serverIP, 9999);
-            System.out.println("--- 已连接到服务器 ---");
+
 
             // 使用 try-with-resources
             try (DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
@@ -116,6 +122,11 @@ public class FileClient {
 
                 System.out.println("文件发送完毕!");
                 System.out.println("----------------------------------------");
+                // 接收并验证校验和 在发送完后校验文件是否发送完成
+                try (DataInputStream dis = new DataInputStream(socket.getInputStream())) {
+                    long serverChecksum = dis.readLong();
+                    FileIntegrityChecker.verifyChecksum(file, serverChecksum);
+                }
 
             } catch (Exception e) {
                 e.printStackTrace();
