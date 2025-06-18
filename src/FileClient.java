@@ -2,6 +2,7 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.net.*;
+import javax.swing.JFileChooser;
 
 public class FileClient {
 
@@ -34,25 +35,57 @@ public class FileClient {
         }
     }
 
+    /**
+     * 打开一个图形化的文件选择器，让用户选择一个文件。
+     * @return 用户选择的文件对象，如果用户取消了选择，则返回 null。
+     */
+    private static File chooseFile() {
+        // 创建一个文件选择器对象
+        JFileChooser fileChooser = new JFileChooser();
+
+        // 设置对话框的标题
+        fileChooser.setDialogTitle("请选择要上传的文件");
+
+        // 设置默认打开的目录为当前项目目录 "."
+        fileChooser.setCurrentDirectory(new File("."));
+
+        // 打开文件选择对话框
+        // showOpenDialog(null) 会让对话框显示在屏幕中央
+        int result = fileChooser.showOpenDialog(null);
+
+        // 判断用户是否点击了“打开”或“确定”按钮
+        if (result == JFileChooser.APPROVE_OPTION) {
+            // 获取用户选择的文件
+            File selectedFile = fileChooser.getSelectedFile();
+            System.out.println("您选择了文件: " + selectedFile.getAbsolutePath());
+            return selectedFile;
+        } else {
+            System.out.println("您取消了文件选择。");
+            return null; // 用户取消选择，返回 null
+        }
+    }
+
     public static void main(String[] args) {
 
+        String serverIP="127.0.0.1";
+
         System.out.println("--- 测试UDP文件列表获取 ---");
-        requestFileList("127.0.0.1");
+        requestFileList(serverIP);
         System.out.println("----------------------------\n");
         try {
             // 要发送的文件的路径 (为了测试，可以先写死)
             // 在你的项目根目录下创建一个名为 "test.txt" 的文件用于测试
-            String filePath = "test2.txt";
-            File file = new File(filePath);
+            // 1. 调用文件选择器，让用户选择文件
+            File file = chooseFile();
 
-            if (!file.exists()) {
-                System.out.println("文件不存在: " + filePath);
-                return;
+            // 2. 检查用户是否选择了文件
+            if (file == null) {
+                System.out.println("没有选择任何文件，程序退出。");
+                return; // 退出程序
             }
-
             // 1. 创建 Socket，连接到服务器的 9999 端口
             // "127.0.0.1" 或 "localhost" 代表本机
-            Socket socket = new Socket("127.0.0.1", 9999);
+            Socket socket = new Socket(serverIP, 9999);
             System.out.println("--- 已连接到服务器 ---");
 
             // 使用 try-with-resources
