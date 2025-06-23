@@ -1,82 +1,337 @@
 package ui;
 
+import javafx.application.Platform;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.concurrent.Task;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
+import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.stage.DirectoryChooser;
+import javafx.stage.FileChooser;
+import javafx.stage.Stage;
+
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
+import client.FileTransferService;
+
+import javax.swing.*;
+
 
 public class MainViewController {
 
-    // --- 顶部连接区控件 ---
-    @FXML
-    private TextField ipField;
-    @FXML
-    private TextField portField;
-    @FXML
-    private TextField usernameField;
-    @FXML
-    private PasswordField passwordField;
-    @FXML
-    private Button connectButton;
+    // --- FXML 控件 ---
+    @FXML private TextField ipField;
+    @FXML private TextField portField;
+    @FXML private TextField usernameField;
+    @FXML private PasswordField passwordField;
+    @FXML private Button connectButton;
+    @FXML private Button refreshButton;
+    @FXML private Button uploadButton;
+    @FXML private Button downloadButton;
+    @FXML private Button selectDirectoryButton;
+    @FXML private TableView<UIFile> localFileTable;
+    @FXML private TableColumn<UIFile, String> localFileNameColumn;
+    @FXML private TableColumn<UIFile, String> localFileSizeColumn;
+    @FXML private TableColumn<UIFile, String> localFileDateColumn;
+    @FXML private TableView<UIFile> remoteFileTable;
+    @FXML private TableColumn<UIFile, String> remoteFileNameColumn;
+    @FXML private TableColumn<UIFile, String> remoteFileSizeColumn;
+    @FXML private TableColumn<UIFile, String> remoteFileDateColumn;
+    @FXML private TextArea logArea;
+    @FXML private ProgressBar progressBar;
+    @FXML private Label progressLabel;
+    @FXML private TextField localPathField; // 新增：本地路径显示框
+    @FXML private Button upButton; // 新增：向上按钮
 
-    // --- 中间文件列表区控件 ---
-    @FXML
-    private TableView<?> localFileTable; // 泛型 <?> 稍后会用自定义类替换
-    @FXML
-    private TableView<?> remoteFileTable;
-    @FXML
-    private Button refreshButton;
+    private final FileTransferService transferService = new FileTransferService();
+    private boolean isConnected = false;
+    private Stage stage;
+    private File currentLocalDirectory; // 新增：用于跟踪当前本地目录
 
-    // --- 右侧操作按钮 ---
-    @FXML
-    private Button uploadButton;
-    @FXML
-    private Button downloadButton;
-
-    // --- 底部状态区控件 ---
-    @FXML
-    private TextArea logArea;
-    @FXML
-    private ProgressBar progressBar;
-    @FXML
-    private Label progressLabel;
-
-    /**
-     * 当 FXML 文件加载完成后，JavaFX 会自动调用这个方法。
-     * 适合进行一些初始化操作。
-     */
-    @FXML
-    public void initialize() {
-        log("欢迎使用文件传输工具！请输入服务器信息并连接。");
+    public void setStage(Stage stage) {
+        this.stage = stage;
     }
 
-    // --- 事件处理方法 ---
+    @FXML
+    public void initialize() {
+        // 初始化本地和远程文件表格的列
+        localFileNameColumn.setCellValueFactory(new PropertyValueFactory<>("name"));
+        localFileSizeColumn.setCellValueFactory(new PropertyValueFactory<>("size"));
+        localFileDateColumn.setCellValueFactory(new PropertyValueFactory<>("lastModified"));
+        remoteFileNameColumn.setCellValueFactory(new PropertyValueFactory<>("name"));
+        remoteFileSizeColumn.setCellValueFactory(new PropertyValueFactory<>("size"));
+        remoteFileDateColumn.setCellValueFactory(new PropertyValueFactory<>("lastModified"));
+        localFileTable.setRowFactory(tv -> {
+            TableRow<UIFile> row = new TableRow<>();
+            row.setOnMouseClicked(event -> {
+                if (event.getClickCount() == 2 && (!row.isEmpty())) {
+                    UIFile rowData = row.getItem();
+                    File file = rowData.getOriginalFile();
+                    if (file.isDirectory()) {
+                        loadLocalFiles(file); // 双击目录，进入该目录
+                    }
+                }
+            });
+            return row;
+        });
+
+        // 初始时禁用部分按钮
+        setButtonsDisabled(true);
+        loadLocalFiles(new File(System.getProperty("user.dir"))); // 加载当前目录文件
+
+        // 加载用户的主目录作为初始目录
+        currentLocalDirectory = new File(System.getProperty("user.home"));
+        loadLocalFiles(currentLocalDirectory);
+    }
 
     @FXML
     private void handleConnectButton() {
-        String ip = ipField.getText();
-        log("尝试连接到服务器: " + ip + " (逻辑未实现)");
+        if (isConnected) {
+            disconnectFromServer();
+        } else {
+            connectToServer();
+        }
     }
 
     @FXML
     private void handleRefreshButton() {
-        log("请求刷新服务器文件列表... (逻辑未实现)");
+        log("正在获取服务器文件列表...");
+        Task<List<String>> task = new Task<>() {
+            @Override
+            protected List<String> call() throws Exception {
+                return transferService.getRemoteFileList(ipField.getText());
+            }
+        };
+
+        task.setOnSucceeded(e -> {
+            List<UIFile> remoteFiles = task.getValue().stream()
+                    .map(UIFile::new)
+                    .collect(Collectors.toList());
+            remoteFileTable.setItems(FXCollections.observableArrayList(remoteFiles));
+            log("服务器文件列表已刷新。");
+        });
+        task.setOnFailed(e -> logError("刷新失败", task.getException()));
+        new Thread(task).start();
     }
+
+    // 新增：处理“向上”按钮点击事件
+    @FXML
+    private void handleUpButton() {
+        File parentDir = currentLocalDirectory.getParentFile();
+        if (parentDir != null) {
+            loadLocalFiles(parentDir);
+        }
+    }
+
 
     @FXML
     private void handleUploadButton() {
-        log("上传按钮被点击... (逻辑未实现)");
+        UIFile selectedUiFile = localFileTable.getSelectionModel().getSelectedItem();
+        if (selectedUiFile == null || selectedUiFile.getOriginalFile() == null) {
+            showAlert("错误", "请先在左侧选择一个要上传的本地文件。");
+            return;
+        }
+        File selectedFile = selectedUiFile.getOriginalFile();
+
+        log("准备上传文件: " + selectedFile.getName());
+        setButtonsDisabled(true);
+
+        Task<Void> uploadTask = new Task<>() {
+            @Override
+            protected Void call() throws Exception {
+                // 1. 服务层准备上传，获取流
+                DataOutputStream dos = transferService.prepareUpload(selectedFile);
+
+                // 2. 在Task内部执行文件读写循环，并更新进度
+                try (FileInputStream fis = new FileInputStream(selectedFile)) {
+                    byte[] buffer = new byte[8192];
+                    int bytesRead;
+                    long totalSent = 0;
+                    long fileSize = selectedFile.length();
+
+                    while ((bytesRead = fis.read(buffer)) != -1) {
+                        dos.write(buffer, 0, bytesRead);
+                        totalSent += bytesRead;
+                        // 在这里调用 updateProgress 是完全合法的！
+                        updateProgress(totalSent, fileSize);
+                    }
+                    dos.flush();
+                }
+
+                // 3. 服务层完成上传（接收校验和）
+                transferService.finishUpload(selectedFile);
+
+                return null;
+            }
+        };
+
+
+
+        // --- 绑定和事件处理部分保持不变 ---
+        progressBar.progressProperty().bind(uploadTask.progressProperty());
+        progressLabel.textProperty().bind(
+                uploadTask.progressProperty().multiply(100).asString("%.0f%%")
+        );
+
+        uploadTask.setOnSucceeded(e -> {
+            log("文件上传成功: " + selectedFile.getName());
+            setButtonsDisabled(false);
+            handleRefreshButton();
+            progressBar.progressProperty().unbind();
+            progressLabel.textProperty().unbind();
+            updateProgress(0);
+        });
+
+        uploadTask.setOnFailed(e -> {
+            logError("文件上传失败", uploadTask.getException());
+            setButtonsDisabled(false);
+            progressBar.progressProperty().unbind();
+            progressLabel.textProperty().unbind();
+            updateProgress(0);
+        });
+
+        new Thread(uploadTask).start();
     }
+
+
 
     @FXML
     private void handleDownloadButton() {
-        log("下载按钮被点击... (逻辑未实现)");
+        showAlert("提示", "下载功能待实现。");
+    }
+
+    // --- 辅助逻辑 ---
+
+    private void connectToServer() {
+        String ip = ipField.getText();
+        int port = Integer.parseInt(portField.getText());
+        String user = usernameField.getText();
+        String pass = passwordField.getText();
+
+        log("正在连接到 " + ip + ":" + port + "...");
+        Task<Void> connectTask = new Task<>() {
+            @Override
+            protected Void call() throws Exception {
+                transferService.connectAndAuthenticate(ip, port, user, pass);
+                return null;
+            }
+        };
+
+        connectTask.setOnSucceeded(e -> {
+            isConnected = true;
+            connectButton.setText("断开");
+
+            log("成功连接到服务器！");
+            setButtonsDisabled(false);
+            handleRefreshButton();
+        });
+
+        connectTask.setOnFailed(e -> logError("连接失败", connectTask.getException()));
+
+        new Thread(connectTask).start();
+    }
+
+    private void disconnectFromServer() {
+        try {
+            transferService.disconnect();
+            log("已断开连接。");
+            isConnected = false;
+            connectButton.setText("连接");
+            setButtonsDisabled(true);
+            remoteFileTable.getItems().clear();
+        } catch (Exception e) {
+            logError("断开连接时出错", e);
+        }
+    }
+
+    private void loadLocalFiles(File directory) {
+        currentLocalDirectory = directory; // 更新当前目录
+        localPathField.setText(directory.getAbsolutePath()); // 更新路径显示框
+
+        File[] files = directory.listFiles();
+        if (files != null) {
+            ObservableList<UIFile> uiFiles = FXCollections.observableArrayList();
+            // 先添加目录，再添加文件
+            Arrays.sort(files, (f1, f2) -> {
+                if (f1.isDirectory() && !f2.isDirectory()) return -1;
+                if (!f1.isDirectory() && f2.isDirectory()) return 1;
+                return f1.getName().compareToIgnoreCase(f2.getName());
+            });
+
+            for (File file : files) {
+                uiFiles.add(new UIFile(file));
+            }
+            localFileTable.setItems(uiFiles);
+        }
     }
 
     /**
-     * 向日志区域追加一条消息的辅助方法
-     * @param message 要记录的消息
+     * 打开一个图形化的文件选择器，让用户选择一个文件夹。
+     * @return 用户选择的文件夹对象，如果用户取消了选择，则返回 null。
      */
+    private File chooseDirectory() {
+        // 1. 创建一个 JavaFX 的目录选择器
+        DirectoryChooser directoryChooser = new DirectoryChooser();
+        directoryChooser.setTitle("请选择一个文件夹");
+
+        // 2. 设置初始显示的目录（可选，这里设置为用户的主目录）
+        File initialDirectory = new File(System.getProperty("user.home"));
+        if (initialDirectory.exists()) {
+            directoryChooser.setInitialDirectory(initialDirectory);
+        }
+
+        // 3. 显示对话框，并将主窗口(stage)作为父窗口
+        //    这能确保对话框显示在主窗口之上
+        File selectedDirectory = directoryChooser.showDialog(stage);
+
+        // 4. 处理用户的选择
+        if (selectedDirectory != null) {
+            log("您选择了文件夹: " + selectedDirectory.getAbsolutePath());
+            return selectedDirectory;
+        } else {
+            log("您取消了文件夹选择。");
+            return null;
+        }
+    }
+    @FXML
+    private void handleSelectDirectoryButton() {
+        File selectedDirectory = chooseDirectory();
+        if (selectedDirectory != null) {
+            // 当用户成功选择一个文件夹后，调用 loadLocalFiles 方法来更新左侧的表格
+            loadLocalFiles(selectedDirectory);
+        }
+    }
+
+    private void setButtonsDisabled(boolean disabled) {
+        refreshButton.setDisable(disabled);
+        uploadButton.setDisable(disabled);
+        downloadButton.setDisable(disabled);
+    }
+
     private void log(String message) {
-        // 使用 Platform.runLater 确保在任何线程中都能安全地更新UI
-        javafx.application.Platform.runLater(() -> logArea.appendText(message + "\n"));
+        Platform.runLater(() -> logArea.appendText(message + "\n"));
+    }
+
+    private void logError(String prefix, Throwable e) {
+        log(prefix + ": " + e.getMessage());
+        e.printStackTrace();
+    }
+
+    private void updateProgress(double progress) {
+        progressBar.setProgress(progress);
+        progressLabel.setText(String.format("%.0f%%", progress * 100));
+    }
+
+    private void showAlert(String title, String content) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(content);
+        alert.showAndWait();
     }
 }
