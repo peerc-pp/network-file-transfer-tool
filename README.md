@@ -1,2 +1,2 @@
 # network-file-transfer-tool
-# 测试ip：127.0.0.1 密码：123
+# 测试用户名：123 密码：123

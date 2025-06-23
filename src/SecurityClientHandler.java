@@ -5,16 +5,14 @@ import java.util.Scanner;
 import java.io.*;
 
 public class SecurityClientHandler {
-    public static boolean handleAuthentication(Socket clientSocket) {
+    public static boolean handleAuthentication(DataInputStream dis, DataOutputStream dos) {
         int max_loginnum=3;//最多可以输入3次密码
-        PrintWriter out = null;
-        BufferedReader in = null;
+
         try (Scanner scanner = new Scanner(System.in)) {
-            out = new PrintWriter(clientSocket.getOutputStream(), true);
-            in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+
 
             // 接收认证请求
-            String serverMessage = in.readLine();
+            String serverMessage = dis.readUTF();
             if (!"AUTH_REQUEST".equals(serverMessage)) {
                 System.err.println("预期认证请求，但收到: " + serverMessage);
                 return false;
@@ -29,11 +27,11 @@ public class SecurityClientHandler {
             String username= scanner.nextLine();
 
             // 发送认证请求
-            out.println("AUTH " + username);
+            dos.writeUTF("AUTH " + username);
             System.out.println("已发送用户名 " + username );
 
             // 处理服务器响应
-            serverMessage = in.readLine();
+            serverMessage = dis.readUTF();
             if (serverMessage == null) {                     // 服务器断开
                 System.out.println("连接已关闭，认证失败。");
                 return false;
@@ -45,18 +43,18 @@ public class SecurityClientHandler {
                     System.out.print("请输入密码: ");
                     String password = scanner.nextLine();
                     String passwordHash = SecurityServerHandler.sha1(password);
-                    out.println("AUTH " + passwordHash);
+                    dos.writeUTF("AUTH " + passwordHash);
                     System.out.println("已发送密码哈希值 " + passwordHash );
                     loginnum++;
                     // 再次等待服务器最终结果
                     while(loginnum<max_loginnum)
                     {
-                        if (loginnum>max_loginnum)
+                        if (loginnum ==max_loginnum)
                         {
                             System.out.println("连续 " + loginnum + " 次密码错误，已终止。");
                             return false;
                         }
-                        serverMessage = in.readLine();
+                        serverMessage = dis.readUTF();
                         if (serverMessage == null) {                     // 服务器断开
                                 System.out.println("连接已关闭，认证失败。");
                                 return false;
@@ -69,7 +67,7 @@ public class SecurityClientHandler {
                             System.out.print("请输入密码: ");
                             password = scanner.nextLine();
                             passwordHash = SecurityServerHandler.sha1(password);
-                            out.println("AUTH " + passwordHash);
+                            dos.writeUTF("AUTH " + passwordHash);
                             System.out.println("已发送密码哈希值 " + passwordHash );
                             loginnum++;
                         } else {
@@ -77,16 +75,17 @@ public class SecurityClientHandler {
                             return false;
                         }
                     }
+                    return false;
                 case "AUTH_SUCCESS":
                     System.out.println("认证成功！");
                     return true;
                 case "REGISTER_REQUIRED":
-                    out.println("AUTH " + username);
+                    dos.writeUTF("AUTH " + username);
                     System.out.println("已发送用户名 " + username );
                     System.out.println("用户尚未注册，请设置新密码:");
                     String newPassword = scanner.nextLine();
                     String newHash = SecurityServerHandler.sha1(newPassword);
-                    out.println("REGISTER " + newHash);
+                    dos.writeUTF("REGISTER " + newHash);
                     System.out.println("注册成功！");
                     return true;
                 case "AUTH_FAILURE":

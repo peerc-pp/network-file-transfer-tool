@@ -69,77 +69,46 @@ public class FileClient {
     }
 
     public static void main(String[] args) {
-
-        String serverIP="127.0.0.1";
-
-        System.out.println("--- 测试UDP文件列表获取 ---");
-        requestFileList(serverIP);
-        System.out.println("----------------------------\n");
+        String serverIP = "127.0.0.1"; // 或其他服务器IP
         try {
-            // 1. 创建 Socket，连接到服务器的 9999 端口
-            // "127.0.0.1" 或 "localhost" 代表本机
             Socket socket = new Socket(serverIP, 9999);
             System.out.println("--- 已连接到服务器 ---");
-            // 处理身份认证 校验身份
-            if (!SecurityClientHandler.handleAuthentication(socket)) {
-                System.out.println("登陆失败");
-                socket.close();
-                return;
-            }
-            // 要发送的文件的路径 (为了测试，可以先写死)
-            // 在你的项目根目录下创建一个名为 "test.txt" 的文件用于测试
-            // 1. 调用文件选择器，让用户选择文件
-            File file = chooseFile();
-
-            // 2. 检查用户是否选择了文件
-            if (file == null) {
-                System.out.println("没有选择任何文件，程序退出。");
-                return; // 退出程序
-            }
-
-
-            // 使用 try-with-resources
-            try (DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
-                 FileInputStream fis = new FileInputStream(file)) {
-
-                // --- 开始执行我们的应用层协议 ---
-
-                // 1. 发送文件名
+// !!! 在这里统一创建和管理流 !!!
+            try (DataInputStream dis = new DataInputStream(socket.getInputStream());
+                 DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
+// 1. 处理身份认证
+                if (!SecurityClientHandler.handleAuthentication(dis, dos)) {
+                    System.out.println("认证失败，程序退出。");
+                    return; // 认证失败，直接退出main方法
+                }
+// 2. 认证成功，选择并上传文件
+                File file = chooseFile();
+                if (file == null) {
+                    System.out.println("没有选择任何文件，程序退出。");
+                    return;
+                }
+// --- 开始文件传输 ---
+                System.out.println("开始上传文件: " + file.getName());
                 dos.writeUTF(file.getName());
-                dos.flush();
-                System.out.println("已发送文件名: " + file.getName());
-
-                // 2. 发送文件大小
                 dos.writeLong(file.length());
-                dos.flush();
-                System.out.println("已发送文件大小: " + file.length() + " bytes");
-
-                // 3. 发送文件数据
-                System.out.println("开始发送文件...");
-                byte[] buffer = new byte[8192]; // 8KB 缓冲区
-                int bytesRead;
-
-                while ((bytesRead = fis.read(buffer)) != -1) {
-                    dos.write(buffer, 0, bytesRead);
+                try (FileInputStream fis = new FileInputStream(file)) {
+                    byte[] buffer = new byte[8192];
+                    int bytesRead;
+                    while ((bytesRead = fis.read(buffer)) != -1) {
+                        dos.write(buffer, 0, bytesRead);
+                    }
+                    dos.flush();
                 }
-                dos.flush(); // 确保所有数据都被发送出去
-
                 System.out.println("文件发送完毕!");
-                System.out.println("----------------------------------------");
-                // 接收并验证校验和 在发送完后校验文件是否发送完成
-                try (DataInputStream dis = new DataInputStream(socket.getInputStream())) {
-                    long serverChecksum = dis.readLong();
-                    FileIntegrityChecker.verifyChecksum(file, serverChecksum);
-                }
-
-            } catch (Exception e) {
-                e.printStackTrace();
-            } finally {
-                socket.close();
-            }
-
+// --- 接收并验证校验和 ---
+                long serverChecksum = dis.readLong();
+                System.out.println("收到服务器计算的校验和: " + serverChecksum);
+                FileIntegrityChecker.verifyChecksum(file, serverChecksum);
+            } // 内层 try-with-resources 结束，dis 和 dos 会被关闭
         } catch (Exception e) {
+            System.err.println("客户端出错: " + e.getMessage());
             e.printStackTrace();
         }
+        System.out.println("客户端运行结束。");
     }
 }
