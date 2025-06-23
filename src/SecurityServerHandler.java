@@ -11,31 +11,29 @@ public class SecurityServerHandler {
     private static final int    MAX_ATTEMPTS     = 3;   // 允许的最大密码尝试次数
 
     /** 认证入口：与客户端完成用户名/密码-哈希握手 */
-    public static boolean handleAuthentication(Socket clientSocket) throws IOException {
-        PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
-        BufferedReader in  = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+    public static boolean handleAuthentication(DataInputStream dis, DataOutputStream dos) throws IOException {
 
         Map<String, String> credentials = loadCredentials();
 
         /* === 1. 发起认证请求 === */
-        out.println("AUTH_REQUEST");
+        dos.writeUTF("AUTH_REQUEST");
 
         /* === 2. 等待客户端发送用户名 === */
-        String line = in.readLine();
+        String line = dis.readUTF();
         if (line == null || !line.startsWith("AUTH ")) {
-            out.println("UNKNOWN_COMMAND");
+            dos.writeUTF("UNKNOWN_COMMAND");
             return false;
         }
         String username = line.substring(5).trim();
 
         /* === 3. 用户已存在 → 多次校验密码 === */
         if (credentials.containsKey(username)) {
-            out.println("NAME_SUCCESS");
+            dos.writeUTF("NAME_SUCCESS");
 
             int attempts = 0;
-            while ((line = in.readLine()) != null && attempts < MAX_ATTEMPTS) {
+            while ((line = dis.readUTF()) != null && attempts < MAX_ATTEMPTS) {
                 if (!line.startsWith("AUTH ")) {
-                    out.println("UNKNOWN_COMMAND");
+                    dos.writeUTF("UNKNOWN_COMMAND");
                     continue;
                 }
 
@@ -50,11 +48,11 @@ public class SecurityServerHandler {
                         : "";
 
                 if (storedHash.equals(pwdHash)) {
-                    out.println("AUTH_SUCCESS");
+                    dos.writeUTF("AUTH_SUCCESS");
                     System.out.printf("用户 %s 认证成功%n", username);
                     return true;
                 } else {
-                    out.println("AUTH_FAILURE");
+                    dos.writeUTF("AUTH_FAILURE");
                     System.out.printf("用户 %s 第 %d 次密码错误%n", username, attempts);
                     if (attempts >= MAX_ATTEMPTS) {
                         return false;  // 超过次数直接断开
@@ -65,20 +63,20 @@ public class SecurityServerHandler {
         }
 
         /* === 4. 用户不存在 → 注册流程 === */
-        out.println("REGISTER_REQUIRED");
+        dos.writeUTF("REGISTER_REQUIRED");
 
-        while ((line = in.readLine()) != null) {
+        while ((line = dis.readUTF()) != null) {
             if (line.startsWith("REGISTER ")) {
                 String newHash = line.substring(9).trim();
                 credentials.put(username, "REGISTER " + newHash);
                 saveCredentials(credentials);
-                out.println("REGISTER_SUCCESS");
+                dos.writeUTF("REGISTER_SUCCESS");
                 System.out.printf("用户 %s 完成注册%n", username);
                 return true;
             }
             // 若客户端又重复发 AUTH <username>，忽略继续等待
             if (!line.startsWith("AUTH ")) {
-                out.println("UNKNOWN_COMMAND");
+                dos.writeUTF("UNKNOWN_COMMAND");
             }
         }
 
