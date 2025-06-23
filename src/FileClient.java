@@ -81,10 +81,11 @@ public class FileClient {
             Socket socket = new Socket(serverIP, 9999);
             System.out.println("--- 已连接到服务器 ---");
             // 处理身份认证 校验身份
-            if(SecurityClientHandler.handleAuthentication(socket))
-            { System.out.println("登陆失败");
+            if (!SecurityClientHandler.handleAuthentication(socket)) {
+                System.out.println("登陆失败");
                 socket.close();
-                return ;}
+                return;
+            }
             // 要发送的文件的路径 (为了测试，可以先写死)
             // 在你的项目根目录下创建一个名为 "test.txt" 的文件用于测试
             // 1. 调用文件选择器，让用户选择文件
