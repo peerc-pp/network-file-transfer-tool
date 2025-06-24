@@ -5,6 +5,7 @@ import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
 import java.io.EOFException;
+import java.util.zip.CRC32;
 
 public class ClientSessionHandler implements Runnable {
     private final Socket socket;
@@ -37,7 +38,7 @@ public class ClientSessionHandler implements Runnable {
                         break;
                     case "DOWNLOAD":
                         System.out.println("收到 DOWNLOAD 指令 (功能待实现)");
-                        // sendFile(dis, dos); // 下载功能的实现位置
+                        sendFile(dis, dos); // 下载功能的实现位置
                         break;
                     case "QUIT":
                         System.out.println("客户端 " + socket.getRemoteSocketAddress() + " 请求断开连接。");
@@ -63,6 +64,49 @@ public class ClientSessionHandler implements Runnable {
             }
         }
     }
+
+    // ClientSessionHandler.java
+
+    /**
+     * 【已修正】根据客户端请求，发送服务器上的文件，并在之后发送校验和
+     * @param dis 从客户端读取请求
+     * @param dos 向客户端发送文件和校验和
+     * @throws IOException
+     */
+    private void sendFile(DataInputStream dis, DataOutputStream dos) throws IOException {
+        String requestedFileName = dis.readUTF();
+        File fileToSend = new File("server_files", requestedFileName);
+
+        if (fileToSend.exists() && fileToSend.isFile()) {
+            dos.writeLong(fileToSend.length()); // 发送文件大小
+
+            System.out.println("开始发送文件: " + requestedFileName);
+            long checksum = 0L;
+
+            // 发送文件内容
+            try (FileInputStream fis = new FileInputStream(fileToSend)) {
+                CRC32 crc = new CRC32(); // 创建CRC32实例
+                byte[] buffer = new byte[8192];
+                int bytesRead;
+                while ((bytesRead = fis.read(buffer)) != -1) {
+                    dos.write(buffer, 0, bytesRead);
+                    crc.update(buffer, 0, bytesRead); // 实时更新CRC
+                }
+                dos.flush();
+                checksum = crc.getValue(); // 获取最终的校验和
+            }
+
+            // 【新增】发送文件的CRC32校验和
+            dos.writeLong(checksum);
+            dos.flush();
+
+            System.out.println("文件发送完毕: " + requestedFileName + ", 校验和: " + checksum);
+        } else {
+            dos.writeLong(-1L); // 文件不存在，发送-1作为错误信号
+            System.out.println("请求的文件不存在: " + requestedFileName);
+        }
+    }
+
 
     // 从旧的FileServer中移过来的文件接收逻辑
     private void receiveFile(DataInputStream dis, DataOutputStream dos) throws IOException {

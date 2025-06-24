@@ -24,11 +24,13 @@ public class UIFile {
     }
 
     // 用于服务器文件的构造函数
-    public UIFile(String name) {
-        this.originalFile = null;
+    public UIFile(String name, long sizeInBytes, long lastModifiedTimestamp) {
+        this.originalFile = null; // 服务器文件在本地没有对应的File对象
         this.name = new SimpleStringProperty(name);
-        this.size = new SimpleStringProperty("N/A");
-        this.lastModified = new SimpleStringProperty("N/A");
+        this.size = new SimpleStringProperty(formatSize(sizeInBytes)); // 使用格式化方法
+        this.lastModified = new SimpleStringProperty(
+                new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(lastModifiedTimestamp))
+        );
     }
 
     // JavaFX TableView 所需的 Property 方法

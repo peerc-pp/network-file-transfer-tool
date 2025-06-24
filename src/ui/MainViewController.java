@@ -11,9 +11,7 @@ import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
+import java.io.*;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -101,17 +99,15 @@ public class MainViewController {
     @FXML
     private void handleRefreshButton() {
         log("正在获取服务器文件列表...");
-        Task<List<String>> task = new Task<>() {
+        Task<List<UIFile>> task = new Task<>() { // <-- 确认这里的泛型是 <List<UIFile>>
             @Override
-            protected List<String> call() throws Exception {
+            protected List<UIFile> call() throws Exception {
                 return transferService.getRemoteFileList(ipField.getText());
             }
         };
 
         task.setOnSucceeded(e -> {
-            List<UIFile> remoteFiles = task.getValue().stream()
-                    .map(UIFile::new)
-                    .collect(Collectors.toList());
+            List<UIFile> remoteFiles = task.getValue(); // <-- remoteFiles 现在是 List<UIFile> 类型
             remoteFileTable.setItems(FXCollections.observableArrayList(remoteFiles));
             log("服务器文件列表已刷新。");
         });
@@ -202,7 +198,78 @@ public class MainViewController {
 
     @FXML
     private void handleDownloadButton() {
-        showAlert("提示", "下载功能待实现。");
+        UIFile selectedUiFile = remoteFileTable.getSelectionModel().getSelectedItem();
+        if (selectedUiFile == null) {
+            showAlert("错误", "请先在右侧选择一个要下载的服务器文件。");
+            return;
+        }
+        String remoteFileName = selectedUiFile.getName();
+
+        File destinationDirectory = chooseDirectory();
+        if (destinationDirectory == null) {
+            log("用户取消了保存位置的选择。");
+            return; // 如果用户点击了取消，则中止整个下载流程
+        }
+
+        log("准备下载文件: " + remoteFileName);
+        setButtonsDisabled(true);
+
+        Task<Void> downloadTask = new Task<>() {
+            @Override
+            protected Void call() throws Exception {
+                // 1. 调用服务层准备下载，获取文件大小
+                long fileSize = transferService.prepareDownload(remoteFileName);
+                if (fileSize == -1L) {
+                    throw new FileNotFoundException("服务器上未找到文件: " + remoteFileName);
+                }
+
+                File downloadsDir = new File("downloads");
+                if (!downloadsDir.exists()) {
+                    downloadsDir.mkdirs();
+                }
+                File outputFile = new File(destinationDirectory, remoteFileName);
+
+                // 2. 在Task内部执行文件接收循环，并更新进度
+                try (FileOutputStream fos = new FileOutputStream(outputFile)) {
+                    DataInputStream dis = transferService.getInputStream();
+                    byte[] buffer = new byte[8192];
+                    int bytesRead;
+                    long totalRead = 0;
+                    while (totalRead < fileSize && (bytesRead = dis.read(buffer, 0, (int) Math.min(buffer.length, fileSize - totalRead))) != -1) {
+                        fos.write(buffer, 0, bytesRead);
+                        totalRead += bytesRead;
+                        // 在这里调用 updateProgress 是完全合法的！
+                        updateProgress(totalRead, fileSize);
+                    }
+                }
+
+                // 3. 调用服务层完成下载（校验和验证）
+                transferService.finishDownload(outputFile);
+
+                return null;
+            }
+        };
+
+        // --- 绑定和事件处理部分与上传逻辑相同 ---
+        progressBar.progressProperty().bind(downloadTask.progressProperty());
+        progressLabel.textProperty().bind(
+                downloadTask.progressProperty().multiply(100).asString("%.0f%%")
+        );
+
+        downloadTask.setOnSucceeded(e -> {
+            log("文件下载成功: " + remoteFileName);
+            setButtonsDisabled(false);
+            loadLocalFiles(currentLocalDirectory);
+            unbindProgress();
+        });
+
+        downloadTask.setOnFailed(e -> {
+            logError("文件下载失败", downloadTask.getException());
+            setButtonsDisabled(false);
+            unbindProgress();
+        });
+
+        new Thread(downloadTask).start();
     }
 
     // --- 辅助逻辑 ---
@@ -320,6 +387,17 @@ public class MainViewController {
     private void logError(String prefix, Throwable e) {
         log(prefix + ": " + e.getMessage());
         e.printStackTrace();
+    }
+
+    private void unbindProgress() {
+        // 解除 progressBar 的 progressProperty 绑定
+        progressBar.progressProperty().unbind();
+
+        // 解除 progressLabel 的 textProperty 绑定
+        progressLabel.textProperty().unbind();
+
+        // 调用我们已有的 updateProgress 方法，将进度条和百分比都重置为 0
+        updateProgress(0);
     }
 
     private void updateProgress(double progress) {

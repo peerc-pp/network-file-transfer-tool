@@ -37,7 +37,12 @@ public class UdpMetadataServer implements Runnable {
                         System.out.println("[服务器调试] 在该目录中找到了 " + files.length + " 个条目。");
                         for (File file : files) {
                             if (file.isFile()) {
-                                fileList.append(file.getName()).append("\n");
+                                fileList.append(file.getName())
+                                        .append("|")
+                                        .append(file.length()) // 文件大小
+                                        .append("|")
+                                        .append(file.lastModified()) // 修改时间（毫秒时间戳）
+                                        .append("\n"); // 每个文件占一行
                             }
                         }
                     }else {

@@ -11,6 +11,7 @@ import java.util.List;
 import server.SecurityServerHandler;
 import common.FileIntegrityChecker;
 import javafx.concurrent.Task; // 导入 Task
+import ui.UIFile;
 
 public class FileTransferService {
     private Socket socket;
@@ -60,9 +61,9 @@ public class FileTransferService {
     }
 
 
-    public List<String> getRemoteFileList(String host) throws IOException {
+    public List<UIFile> getRemoteFileList(String host) throws IOException {
         int udpPort = 9998; // 根据服务器设计
-        List<String> fileList = new ArrayList<>();
+        List<UIFile> fileList = new ArrayList<>();
         try (DatagramSocket socket = new DatagramSocket()) {
             socket.setSoTimeout(5000); // 5秒超时
             byte[] requestData = "LIST_FILES".getBytes();
@@ -75,10 +76,21 @@ public class FileTransferService {
             socket.receive(responsePacket);
 
             String response = new String(responsePacket.getData(), 0, responsePacket.getLength());
+            if (response.trim().isEmpty()) {
+                return fileList; // 如果服务器没文件，返回空列表
+            }
+
             String[] lines = response.split("\n");
-            if (lines.length > 1) { // 确保有内容
-                // 从第二行开始，跳过标题
-                fileList.addAll(Arrays.asList(lines).subList(1, lines.length));
+            for (String line : lines) {
+                String[] parts = line.split("\\|"); // 注意：'|'是特殊字符，需要转义
+                if (parts.length == 3) {
+                    String name = parts[0];
+                    long size = Long.parseLong(parts[1]);
+                    long lastModified = Long.parseLong(parts[2]);
+
+                    // 使用新的构造函数来创建包含完整信息的UIFile对象
+                    fileList.add(new UIFile(name, size, lastModified));
+                }
             }
         }
         return fileList;
@@ -109,6 +121,38 @@ public class FileTransferService {
         if (serverChecksum != localChecksum) {
             throw new IOException("文件校验失败！上传的文件可能已损坏。");
         }
+    }
+
+    // FileTransferService.java
+    public DataInputStream getInputStream() {
+        return this.dis;
+    }
+
+    /**
+     * 【新增】准备下载：发送指令，接收文件大小
+     * @param remoteFileName 要下载的文件名
+     * @return 服务器上该文件的大小，如果文件不存在则返回-1
+     * @throws IOException
+     */
+    public long prepareDownload(String remoteFileName) throws IOException {
+        dos.writeUTF("DOWNLOAD");
+        dos.writeUTF(remoteFileName);
+        dos.flush();
+        return dis.readLong(); // 返回文件大小或-1
+    }
+
+    /**
+     * 【新增】完成下载：接收并验证校验和
+     * @param downloadedFile 刚刚下载到本地的文件
+     * @throws IOException
+     */
+    public void finishDownload(File downloadedFile) throws IOException {
+        long serverChecksum = dis.readLong();
+        long localChecksum = FileIntegrityChecker.calculateCRC32(downloadedFile);
+        if (serverChecksum != localChecksum) {
+            throw new IOException("文件校验失败！下载的文件可能已损坏。");
+        }
+        System.out.println("下载文件校验成功！");
     }
 
     /**
