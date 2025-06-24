@@ -12,12 +12,19 @@ public class UIFile {
     private final StringProperty size;
     private final StringProperty lastModified;
     private final File originalFile; // 仅用于本地文件，引用原始File对象
+    private final String fileType;
 
     // 用于本地文件的构造函数
     public UIFile(File file) {
         this.originalFile = file;
         this.name = new SimpleStringProperty(file.getName());
-        this.size = new SimpleStringProperty(formatSize(file.length()));
+        if (file.isDirectory()) {
+            this.size = new SimpleStringProperty("<DIR>"); // 为文件夹显示 <DIR>
+            this.fileType="dir";
+        } else {
+            this.size = new SimpleStringProperty(formatSize(file.length()));
+            this.fileType = getFileExtension(file.getName());
+        }
         this.lastModified = new SimpleStringProperty(
                 new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(file.lastModified()))
         );
@@ -31,6 +38,14 @@ public class UIFile {
         this.lastModified = new SimpleStringProperty(
                 new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(lastModifiedTimestamp))
         );
+        this.fileType = getFileExtension(name);
+    }
+
+    public UIFile(String displayName, File linkedFile) {
+        this.originalFile = linkedFile; // 链接到真正的上一级目录
+        this.name = new SimpleStringProperty(displayName); // 显示名称为 ".."
+        this.size = new SimpleStringProperty("<UP>");
+        this.lastModified = new SimpleStringProperty("");this.fileType="dir";
     }
 
     // JavaFX TableView 所需的 Property 方法
@@ -39,6 +54,17 @@ public class UIFile {
     public StringProperty lastModifiedProperty() { return lastModified; }
     public String getName() { return name.get(); }
     public File getOriginalFile() { return originalFile; }
+    public String getFileType() {
+        return fileType;
+    }
+
+    private String getFileExtension(String fileName) {
+        int dotIndex = fileName.lastIndexOf('.');
+        if (dotIndex > 0 && dotIndex < fileName.length() - 1) {
+            return fileName.substring(dotIndex + 1).toLowerCase();
+        }
+        return "file"; // 如果没有扩展名，返回通用文件类型
+    }
 
     private static String formatSize(long bytes) {
         if (bytes < 1024) return bytes + " B";

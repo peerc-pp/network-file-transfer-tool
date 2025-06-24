@@ -7,9 +7,12 @@ import javafx.concurrent.Task;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.layout.HBox;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
+import javafx.scene.image.ImageView;
+import javafx.geometry.Pos;
 
 import java.io.*;
 import java.util.Arrays;
@@ -59,11 +62,14 @@ public class MainViewController {
     public void initialize() {
         // 初始化本地和远程文件表格的列
         localFileNameColumn.setCellValueFactory(new PropertyValueFactory<>("name"));
+        localFileNameColumn.setCellFactory(column -> new FileIconCell()); // 应用自定义单元格
         localFileSizeColumn.setCellValueFactory(new PropertyValueFactory<>("size"));
         localFileDateColumn.setCellValueFactory(new PropertyValueFactory<>("lastModified"));
         remoteFileNameColumn.setCellValueFactory(new PropertyValueFactory<>("name"));
+        remoteFileNameColumn.setCellFactory(column -> new FileIconCell()); // 应用自定义单元格
         remoteFileSizeColumn.setCellValueFactory(new PropertyValueFactory<>("size"));
         remoteFileDateColumn.setCellValueFactory(new PropertyValueFactory<>("lastModified"));
+
         localFileTable.setRowFactory(tv -> {
             TableRow<UIFile> row = new TableRow<>();
             row.setOnMouseClicked(event -> {
@@ -78,6 +84,12 @@ public class MainViewController {
             return row;
         });
 
+        // 【新功能】为本地文件表格设置双击和右键菜单
+        setupLocalFileTableInteractions();
+
+        // 【新功能】为远程文件表格设置右键菜单
+        setupRemoteFileTableInteractions();
+
         // 初始时禁用部分按钮
         setButtonsDisabled(true);
         loadLocalFiles(new File(System.getProperty("user.dir"))); // 加载当前目录文件
@@ -85,6 +97,51 @@ public class MainViewController {
         // 加载用户的主目录作为初始目录
         currentLocalDirectory = new File(System.getProperty("user.home"));
         loadLocalFiles(currentLocalDirectory);
+    }
+
+    // ================== 【新功能实现】双击导航 ==================
+    private void setupLocalFileTableInteractions() {
+        localFileTable.setRowFactory(tv -> {
+            TableRow<UIFile> row = new TableRow<>();
+            row.setOnMouseClicked(event -> {
+                // 检查是否为双击事件
+                if (event.getClickCount() == 2 && (!row.isEmpty())) {
+                    UIFile rowData = row.getItem();
+                    File file = rowData.getOriginalFile();
+                    if (file != null && file.isDirectory()) {
+                        // 如果是目录，则加载该目录的内容
+                        loadLocalFiles(file);
+                    }
+                }
+            });
+            return row;
+        });
+
+        // 为本地文件列表创建右键菜单
+        ContextMenu localContextMenu = new ContextMenu();
+        MenuItem uploadItem = new MenuItem("upload");
+        uploadItem.setOnAction(e -> handleUploadButton());
+        localContextMenu.getItems().add(uploadItem);
+        localFileTable.setContextMenu(localContextMenu);
+    }
+
+    // ================== 【新功能实现】右键菜单 ==================
+    private void setupRemoteFileTableInteractions() {
+        ContextMenu remoteContextMenu = new ContextMenu();
+        MenuItem downloadItem = new MenuItem("download");
+        MenuItem deleteRemoteItem = new MenuItem("delete (待实现)");
+
+        downloadItem.setOnAction(e -> handleDownloadButton());
+
+        remoteContextMenu.getItems().addAll(downloadItem, deleteRemoteItem);
+        remoteFileTable.setContextMenu(remoteContextMenu);
+
+        // 在显示菜单前，根据是否选中文件来决定是否禁用菜单项
+        remoteContextMenu.setOnShowing(e -> {
+            boolean isItemSelected = remoteFileTable.getSelectionModel().getSelectedItem() != null;
+            downloadItem.setDisable(!isItemSelected);
+            deleteRemoteItem.setDisable(!isItemSelected);
+        });
     }
 
     @FXML
@@ -317,24 +374,36 @@ public class MainViewController {
     }
 
     private void loadLocalFiles(File directory) {
+        if (directory == null || !directory.isDirectory()) {
+            return;
+        }
         currentLocalDirectory = directory; // 更新当前目录
         localPathField.setText(directory.getAbsolutePath()); // 更新路径显示框
 
-        File[] files = directory.listFiles();
-        if (files != null) {
-            ObservableList<UIFile> uiFiles = FXCollections.observableArrayList();
-            // 先添加目录，再添加文件
-            Arrays.sort(files, (f1, f2) -> {
+        File[] filesInDir = directory.listFiles();
+        ObservableList<UIFile> uiFiles = FXCollections.observableArrayList();
+
+        // 1. 【新增】检查是否存在父目录，如果存在，则添加 ".." 条目
+        File parentDir = directory.getParentFile();
+        if (parentDir != null) {
+            uiFiles.add(new UIFile("..", parentDir)); // 使用新构造函数创建返回项
+        }
+
+        if (filesInDir != null) {
+            // 2. 排序：文件夹在前，文件在后
+            Arrays.sort(filesInDir, (f1, f2) -> {
                 if (f1.isDirectory() && !f2.isDirectory()) return -1;
                 if (!f1.isDirectory() && f2.isDirectory()) return 1;
                 return f1.getName().compareToIgnoreCase(f2.getName());
             });
 
-            for (File file : files) {
+            // 3. 将文件夹和文件都添加进去
+            for (File file : filesInDir) {
                 uiFiles.add(new UIFile(file));
             }
-            localFileTable.setItems(uiFiles);
         }
+
+        localFileTable.setItems(uiFiles);
     }
 
     /**
@@ -412,4 +481,45 @@ public class MainViewController {
         alert.setContentText(content);
         alert.showAndWait();
     }
+    class FileIconCell extends TableCell<UIFile, String> {
+        private final HBox graphicBox = new HBox(5); // 5是图标和文字的间距
+        private final ImageView iconView = new ImageView();
+        private final Label label = new Label();
+
+        public FileIconCell() {
+            // ================== 【核心修改点在这里】 ==================
+            // 为 ImageView 设置固定的显示大小
+            iconView.setFitHeight(18); // 设置图标的目标高度为18像素
+            iconView.setFitWidth(18);  // 设置图标的目标宽度为18像素
+            iconView.setPreserveRatio(true); // 缩放时保持图标的原始宽高比，防止变形
+            // =======================================================
+
+            graphicBox.setAlignment(Pos.CENTER_LEFT); // 确保图标和文字垂直居中
+            graphicBox.getChildren().addAll(iconView, label);
+        }
+
+
+        @Override
+        protected void updateItem(String itemName, boolean empty) {
+            super.updateItem(itemName, empty);
+
+            if (empty || getItem() == null) {
+                setGraphic(null);
+            } else {
+                // 获取当前行对应的UIFile对象
+                UIFile uiFile = getTableView().getItems().get(getIndex());
+
+                // 从IconManager获取图标
+                iconView.setImage(IconManager.getIcon(uiFile.getFileType()));
+
+                // 设置文件名
+                label.setText(itemName);
+
+                // 将HBox（包含图标和文字）设置为此单元格的图形
+                setGraphic(graphicBox);
+            }
+        }
+    }
+
 }
+
