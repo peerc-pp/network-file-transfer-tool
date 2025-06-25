@@ -5,6 +5,8 @@ import java.io.*;
 import java.net.Socket;
 import java.net.SocketException;
 import java.io.EOFException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.zip.CRC32;
 
 public class ClientSessionHandler implements Runnable {
@@ -32,6 +34,9 @@ public class ClientSessionHandler implements Runnable {
                 String command = dis.readUTF(); // 阻塞等待客户端发送指令
 
                 switch (command) {
+                    case "UPLOAD_RESUME": handleUploadResume(dis, dos); break;
+                    case "QUERY_UPLOAD_PROGRESS": handleQueryUploadProgress(dis, dos); break;
+                    case "DOWNLOAD_RESUME": handleDownloadResume(dis, dos); break;
                     case "UPLOAD":
                         System.out.println("收到 UPLOAD 指令");
                         receiveFile(dis, dos);
@@ -113,27 +118,109 @@ public class ClientSessionHandler implements Runnable {
         String fileName = dis.readUTF();
         long fileLength = dis.readLong();
         System.out.println("接收文件: " + fileName + ", 大小: " + fileLength + " bytes");
-
         File directory = new File("server_files");
         if (!directory.exists()) {
             directory.mkdir();
         }
-        File file = new File(directory, fileName);
+        // 生成唯一文件名：用户传输的文件名 + 时间戳
+        String uniqueFileName = generateUniqueFileName(fileName);
+        File file = new File(directory, uniqueFileName);
+
+
+
 
         try (FileOutputStream fos = new FileOutputStream(file)) {
             byte[] buffer = new byte[8192];
             int bytesRead;
             long totalRead = 0;
-            while (totalRead < fileLength && (bytesRead = dis.read(buffer, 0, (int) Math.min(buffer.length, fileLength - totalRead))) != -1) {
+            while (totalRead < fileLength
+                    && (bytesRead = dis.read(buffer, 0, (int) Math.min(buffer.length, fileLength - totalRead))) != -1) {
                 fos.write(buffer, 0, bytesRead);
                 totalRead += bytesRead;
             }
         }
-
         System.out.println("文件接收完毕: " + file.getAbsolutePath());
         long checksum = FileIntegrityChecker.calculateCRC32(file);
         dos.writeLong(checksum);
         dos.flush();
         System.out.println("已发送校验和: " + checksum);
     }
+
+    private String generateUniqueFileName(String originalFileName) {
+        String baseName = originalFileName.substring(0, originalFileName.lastIndexOf('.'));
+        String extension = originalFileName.substring(originalFileName.lastIndexOf('.'));
+        String timestamp = new SimpleDateFormat("yyyyMMddHHmmssSSS").format(new Date());
+        String randomNum = String.valueOf((int) (Math.random() * 1000));
+        return baseName + "_" + timestamp + "_" + randomNum + extension;
+    }
+
+    // 客户端查询服务端已接收的大小
+    private void handleQueryUploadProgress(DataInputStream dis, DataOutputStream dos) throws IOException {
+        String name = dis.readUTF();
+        File f = new File("server_files", name + ".part");
+        long pos = f.exists() ? f.length() : 0;
+        dos.writeLong(pos);
+        dos.flush();
+    }
+
+    // 服务器端断点上传
+    private void handleUploadResume(DataInputStream dis, DataOutputStream dos) throws IOException {
+        String name = dis.readUTF();
+        long total = dis.readLong();
+        long offset = dis.readLong();
+
+        File dir = new File("server_files");
+        dir.mkdirs();
+        File part = new File(dir, name + ".part");
+        try (RandomAccessFile raf = new RandomAccessFile(part, "rw")) {
+            raf.setLength(total);
+            raf.seek(offset);
+            byte[] buf = new byte[8192];
+            long read = offset;
+            while (read < total) {
+                int n = dis.read(buf, 0, (int) Math.min(buf.length, total - read));
+                if (n < 0) break;
+                raf.write(buf,0,n);
+                read += n;
+            }
+        }
+        long checksum = FileIntegrityChecker.calculateCRC32(part);
+        dos.writeLong(checksum);
+        dos.flush();
+        // 可选：上传完成后重命名去除 .part 扩展
+    }
+
+    // 服务器端断点下载
+    private void handleDownloadResume(DataInputStream dis, DataOutputStream dos) throws IOException {
+        String name = dis.readUTF();
+        long offset = dis.readLong();
+
+        File full = new File("server_files", name);
+        if (!full.exists()) {
+            dos.writeLong(-1);
+            return;
+        }
+        long total = full.length();
+        dos.writeLong(total);
+        try (RandomAccessFile raf = new RandomAccessFile(full, "r")) {
+            raf.seek(offset);
+            CRC32 crc = new CRC32();
+            byte[] buf = new byte[8192];
+            long sent = offset;
+            int n;
+            while ((n = raf.read(buf)) != -1) {
+                dos.write(buf,0,n);
+                crc.update(buf,0,n);
+                sent += n;
+            }
+            dos.flush();
+            long checksum = crc.getValue();
+            dos.writeLong(checksum);
+            dos.flush();
+        }
+    }
+
+
+
 }
+

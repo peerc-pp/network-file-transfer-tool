@@ -18,7 +18,6 @@ public class SecurityServerHandler {
 
         /* === 1. 发起认证请求 === */
         dos.writeUTF("AUTH_REQUEST");
-
         /* === 2. 等待客户端发送用户名 === */
         String line = dis.readUTF();
         if (line == null || !line.startsWith("AUTH ")) {
@@ -26,28 +25,23 @@ public class SecurityServerHandler {
             return false;
         }
         String username = line.substring(5).trim();
-
         /* === 3. 用户已存在 → 多次校验密码 === */
         if (credentials.containsKey(username)) {
             dos.writeUTF("NAME_SUCCESS");
-
             int attempts = 0;
             while ((line = dis.readUTF()) != null && attempts < MAX_ATTEMPTS) {
                 if (!line.startsWith("AUTH ")) {
                     dos.writeUTF("UNKNOWN_COMMAND");
                     continue;
                 }
-
                 attempts++;
                 String pwdHash = line.substring(5).trim();
-
                 // 从存储行中提取注册哈希
                 String storedLine  = credentials.get(username);      // 可能是 "REGISTER <hash>"
                 int idx            = storedLine.indexOf("REGISTER ");
                 String storedHash  = (idx != -1)
                         ? storedLine.substring(idx + "REGISTER ".length()).trim()
                         : "";
-
                 if (storedHash.equals(pwdHash)) {
                     dos.writeUTF("AUTH_SUCCESS");
                     System.out.printf("用户 %s 认证成功%n", username);

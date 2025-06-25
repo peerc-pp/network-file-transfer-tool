@@ -37,6 +37,7 @@ public class FileTransferService {
         }
     }
 
+
     private boolean handleAuthentication(String username, String password) throws IOException {
         // ... (这是从原SecurityClientHandler精简和重构后的逻辑)
         String serverMessage = dis.readUTF();
@@ -70,16 +71,13 @@ public class FileTransferService {
             InetAddress address = InetAddress.getByName(host);
             DatagramPacket requestPacket = new DatagramPacket(requestData, requestData.length, address, udpPort);
             socket.send(requestPacket);
-
             byte[] buffer = new byte[4096];
             DatagramPacket responsePacket = new DatagramPacket(buffer, buffer.length);
             socket.receive(responsePacket);
-
             String response = new String(responsePacket.getData(), 0, responsePacket.getLength());
             if (response.trim().isEmpty()) {
                 return fileList; // 如果服务器没文件，返回空列表
             }
-
             String[] lines = response.split("\n");
             for (String line : lines) {
                 String[] parts = line.split("\\|"); // 注意：'|'是特殊字符，需要转义
@@ -87,14 +85,9 @@ public class FileTransferService {
                     String name = parts[0];
                     long size = Long.parseLong(parts[1]);
                     long lastModified = Long.parseLong(parts[2]);
-
-                    // 使用新的构造函数来创建包含完整信息的UIFile对象
-                    fileList.add(new UIFile(name, size, lastModified));
+                    fileList.add(new UIFile(name, size, lastModified));// 使用新的构造函数来创建包含完整信息的UIFile对象
                 }
-            }
-        }
-        return fileList;
-    }
+            }}return fileList;}
 
     /**
      * 【已修正】准备上传：发送指令和文件元数据，并返回可用的输出流。
@@ -171,4 +164,33 @@ public class FileTransferService {
             if (socket != null && !socket.isClosed()) socket.close();
         }
     }
+    // 查询已上传的字节数
+    public long queryUploadedBytes(String name) throws IOException {
+        dos.writeUTF("QUERY_UPLOAD_PROGRESS");
+        dos.writeUTF(name);
+        dos.flush();
+        return dis.readLong();
+    }
+
+    // 断点上传
+    public DataOutputStream prepareUploadResume(File f, long offset) throws IOException {
+        dos.writeUTF("UPLOAD_RESUME");
+        dos.writeUTF(f.getName());
+        dos.writeLong(f.length());
+        dos.writeLong(offset);
+        dos.flush();
+        return dos;
+    }
+
+    // 断点下载
+    public long prepareDownloadResume(String name, long have) throws IOException {
+        dos.writeUTF("DOWNLOAD_RESUME");
+        dos.writeUTF(name);
+        dos.writeLong(have);
+        dos.flush();
+        return dis.readLong();
+    }
+
+
+
 }
