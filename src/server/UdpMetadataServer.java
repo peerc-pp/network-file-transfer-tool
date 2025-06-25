@@ -16,7 +16,6 @@ public class UdpMetadataServer implements Runnable {
                 byte[] buffer = new byte[1024];
                 DatagramPacket requestPacket = new DatagramPacket(buffer, buffer.length);
                 socket.receive(requestPacket); // 阻塞等待
-
                 // 2. 解析请求
                 String requestMessage = new String(requestPacket.getData(), 0, requestPacket.getLength()).trim();
                 if ("LIST_FILES".equals(requestMessage)) {

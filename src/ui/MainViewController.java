@@ -1,5 +1,6 @@
 package ui;
 
+import common.FileIntegrityChecker;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -270,28 +271,26 @@ public class MainViewController {
         Task<Void> uploadTask = new Task<>() {
             @Override
             protected Void call() throws Exception {
-                // 1. 服务层准备上传，获取流
-                DataOutputStream dos = transferService.prepareUpload(selectedFile);
-
-                // 2. 在Task内部执行文件读写循环，并更新进度
-                try (FileInputStream fis = new FileInputStream(selectedFile)) {
-                    byte[] buffer = new byte[8192];
-                    int bytesRead;
-                    long totalSent = 0;
-                    long fileSize = selectedFile.length();
-
-                    while ((bytesRead = fis.read(buffer)) != -1) {
-                        dos.write(buffer, 0, bytesRead);
-                        totalSent += bytesRead;
-                        // 在这里调用 updateProgress 是完全合法的！
-                        updateProgress(totalSent, fileSize);
+                long existing = transferService.queryUploadedBytes(selectedFile.getName());
+                DataOutputStream dos = transferService.prepareUploadResume(selectedFile, existing);
+                try (RandomAccessFile raf = new RandomAccessFile(selectedFile, "r")) {
+                    raf.seek(existing);
+                    byte[] buf = new byte[8192];
+                    long sent = existing, total = selectedFile.length();
+                    int n;
+                    while ((n = raf.read(buf)) != -1) {
+                        dos.write(buf, 0, n);
+                        sent += n;
+                        updateProgress(sent, total);
                     }
                     dos.flush();
+
+                    long serverCrc = transferService.getInputStream().readLong();
+
+
+                    long localCrc = FileIntegrityChecker.calculateCRC32(selectedFile);
+                    if (serverCrc != localCrc) throw new IOException("校验失败");
                 }
-
-                // 3. 服务层完成上传（接收校验和）
-                transferService.finishUpload(selectedFile);
-
                 return null;
             }
         };
@@ -316,6 +315,7 @@ public class MainViewController {
             setButtonsDisabled(false);
             progressBar.progressProperty().unbind();
             progressLabel.textProperty().unbind();
+            reconnectAndResume(() -> handleUploadButton());
             updateProgress(0);
         });
 
@@ -393,33 +393,29 @@ public class MainViewController {
         setButtonsDisabled(true);
 
         Task<Void> downloadTask = new Task<>() {
-            @Override
-            protected Void call() throws Exception {
-                // 1. 调用服务层准备下载，获取文件大小
-                long fileSize = transferService.prepareDownload(remoteFileName);
-                if (fileSize == -1L) {
-                    throw new FileNotFoundException("服务器上未找到文件: " + remoteFileName);
-                }
+            @Override public Void call() throws Exception {
+                File out = new File(destinationDirectory, remoteFileName);
+                long have = out.exists() ? out.length() : 0;
+                long total = transferService.prepareDownloadResume(remoteFileName, have);
+                if (total == -1L) throw new FileNotFoundException();
 
-                File outputFile = new File(destinationDirectory, remoteFileName);
-
-                // 2. 在Task内部执行文件接收循环，并更新进度
-                try (FileOutputStream fos = new FileOutputStream(outputFile)) {
+                try (RandomAccessFile raf = new RandomAccessFile(out, "rw")) {
+                    raf.seek(have);
                     DataInputStream dis = transferService.getInputStream();
-                    byte[] buffer = new byte[8192];
-                    int bytesRead;
-                    long totalRead = 0;
-                    while (totalRead < fileSize && (bytesRead = dis.read(buffer, 0, (int) Math.min(buffer.length, fileSize - totalRead))) != -1) {
-                        fos.write(buffer, 0, bytesRead);
-                        totalRead += bytesRead;
-                        // 在这里调用 updateProgress 是完全合法的！
-                        updateProgress(totalRead, fileSize);
+                    byte[] buf = new byte[8192];
+                    long read = have;
+                    int n;
+                    while (read < total && (n = dis.read(buf)) != -1) {
+                        raf.write(buf, 0, n);
+                        read += n;
+                        updateProgress(read, total);
+                    }
+
+                    long serverCrc = dis.readLong();
+                    if (serverCrc != FileIntegrityChecker.calculateCRC32(out)) {
+                        throw new IOException("下载校验失败");
                     }
                 }
-
-                // 3. 调用服务层完成下载（校验和验证）
-                transferService.finishDownload(outputFile);
-
                 return null;
             }
         };
@@ -439,6 +435,7 @@ public class MainViewController {
 
         downloadTask.setOnFailed(e -> {
             logError("文件下载失败", downloadTask.getException());
+            reconnectAndResume(() -> handleDownloadButton());
             setButtonsDisabled(false);
             unbindProgress();
         });
@@ -453,7 +450,6 @@ public class MainViewController {
         int port = Integer.parseInt(portField.getText());
         String user = usernameField.getText();
         String pass = passwordField.getText();
-
         log("正在连接到 " + ip + ":" + port + "...");
         Task<Void> connectTask = new Task<>() {
             @Override
@@ -462,7 +458,6 @@ public class MainViewController {
                 return null;
             }
         };
-
         connectTask.setOnSucceeded(e -> {
             isConnected = true;
             connectButton.setText("断开");
@@ -471,9 +466,7 @@ public class MainViewController {
             setButtonsDisabled(false);
             handleRefreshButton();
         });
-
         connectTask.setOnFailed(e -> logError("连接失败", connectTask.getException()));
-
         new Thread(connectTask).start();
     }
 
@@ -638,4 +631,19 @@ public class MainViewController {
             }
         }
     }
+    private void reconnectAndResume(Runnable resumeAction) {
+        log("网络中断，尝试重连...");
+        try {
+            // 使用之前保存的连接参数重新连接
+            transferService.connectAndAuthenticate(ipField.getText(), Integer.parseInt(portField.getText()),
+                    usernameField.getText(), passwordField.getText());
+            log("重连成功，继续操作…");
+            resumeAction.run();
+        } catch (Exception ex) {
+            logError("重连失败，操作中止", ex);
+            setButtonsDisabled(false);
+            unbindProgress();
+        }
+    }
+
 }

@@ -1,0 +1,716 @@
+#include "stm32f10x.h"
+#include "open.h"
+#include "adc.h"
+
+// ADC1转换的电压值通过MDA方式传到SRAM
+extern __IO uint16_t ADC_ConvertedValue;
+
+// 局部变量，用于保存转换计算后的电压值 	 
+float ADC_ConvertedValueLocal;  
+
+/********************************************
+*函数名：int sensor(void)
+*函数功能: 通过比较3中颜色下，电压最大的值来暂定此时识别的相应颜色
+*函数参数说明：void
+*函数返回值：1-blue 2-red 3-green
+*******************************************/
+  //小车左右轮控制	   右轮PC3  顺时针前进
+  //左轮PC5	  1295停止			 逆时针前进
+  //直行 右轮	-175  左轮 +200
+
+
+void car_left(int v){
+		const int qtime=1295;
+	  
+		//匀速
+		GPIO_SetBits(GPIOC, GPIO_Pin_5);
+        delay_nus(qtime+v);      // 逆时针转动 v=200
+        GPIO_ResetBits(GPIOC, GPIO_Pin_5);
+
+      
+        
+
+}
+void car_right(int v){
+		const int qtime=1295;
+        // 右轮控制（PC3）
+        GPIO_SetBits(GPIOC, GPIO_Pin_3);
+		delay_nus(qtime-v);     // 顺时针转动
+        //delay_nus(1120);     // 顺时针转动	   v=175
+        GPIO_ResetBits(GPIOC, GPIO_Pin_3);
+
+        // 维持PWM周期
+        delay_nms(20);    
+	
+
+}
+void Forward(int time,int v)
+{			int i;
+	for(i=1;i<=time;i++){		//直行
+		car_left(v);
+		car_right(v-25);	    
+		} 
+}
+void Turn_Right(int time,int v)
+{	  	int i;
+for(i=1;i<=time;i++){		//右转
+		car_left(v);
+		car_right(0);	    
+		} 
+}
+void Turn_Left(int time,int v)
+{		int i;
+	for(i=1;i<=time;i++){		//左转
+		car_left(0);
+		car_right(v);	    
+		} 
+}
+
+
+void Back(int time,int v)
+{		int i;
+	for(i=1;i<=time;i++){		//后退
+		car_left(-v+25);
+		car_right(-v);	    
+		} 
+}
+//Pc4 是红外线的输出	  Pb0
+int testLeft(void){
+	return GPIO_ReadInputDataBit(GPIOC,GPIO_Pin_4);
+}
+
+int testRight(void){
+	return GPIO_ReadInputDataBit(GPIOB,GPIO_Pin_0);
+}
+
+
+
+	//GPIO_SetBits(GPIOC, GPIO_Pin_3);
+//		GPIO_SetBits(GPIOC, GPIO_Pin_5);
+//		delay_nus(1095); 
+//		GPIO_ResetBits(GPIOC,GPIO_Pin_3); 
+//		delay_nus(400); 
+//		delay_nus(1500);                     //延时1500μs，电机转速为0
+//		delay_nus(1295);                     //延时1300μs，电机顺时针转动
+//		delay_nus(1700);                     //延时1700μs，电机逆时针转动
+//		GPIO_ResetBits(GPIOC,GPIO_Pin_5);      
+//		delay_nms(2);   
+   	//1295是静止
+	//PC3右轮顺时针往前
+	//PC5左轮逆时针往前
+
+//	const uint16_t STOP_PULSE = 1295;    // 停止阈值（特殊配置）
+//    const uint16_t LEFT_PULSE  = 1700;   // 左轮逆时针全速（脉冲>停止阈值）
+//    const uint16_t RIGHT_PULSE = 1300;   // 右轮顺时针全速（脉冲<停止阈值）
+//    const uint16_t CYCLE_DELAY = 20;     // 20ms控制周期
+/*	   
+ int main(void)
+{
+	int j;
+	Open_Init(); //开发板初始化函数
+	printf("Program Running!\r\n");
+
+	while (1)
+	{   		
+	    //printf("left:%d ", testLeft());
+		//printf("right:%d ", testRight());
+		//delay_nms(150);
+		if(testRight()==1)
+		{ 	Forward(10,200);
+		}
+		else{
+
+			for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/4圈	尚未验证  134	   60	50	   	40
+			{
+				car_left(10);			 //50
+				car_right(200);
+			}//左转
+
+			if(testRight()!=1)
+			{ 
+			 	for(j=1 ;j<=80;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+				{
+					car_left(10);			 //50
+					car_right(200);
+				}//直接转180度
+
+				if(testRight()!=1){
+					for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+					{
+						car_left(200);			 //50
+						car_right(10);
+					}//右转90度
+				}
+				else{
+				  	Forward(50,200);
+					for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+						{
+							car_left(10);			 //50
+							car_right(200);
+						}//左转90度
+				}
+			}
+			else{//没有障碍正常转
+				Forward(50,200);
+				for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+					{
+						car_left(200);			 //50
+						car_right(10);
+					}//右转90度
+			    Forward(50,200);
+				for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+					{
+						car_left(200);			 //50
+						car_right(10);
+					}//右转90度
+				Forward(50,200);
+				for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+						{
+							car_left(10);			 //50
+							car_right(200);
+						}//左转90度
+
+			}
+			
+		}	
+	}
+}
+	
+	  */
+
+
+	/*	当没有红外信号返回时，探测器的输出状态为高；		无障碍
+	当它探测到被物体反射的 38500Hz 红外信号时，它的			 有障碍
+输出为低
+	避障，当前方有障碍的时候优先左转然后检测是否有障碍没有，则前行，然后右转回正判断是否有障碍，无则直行右转，判断障碍，无则左转回正，判断是否有障碍，无则直行离开
+	当左与前都有障碍，向右转，判断障碍，有则掉头
+	*/
+
+
+	/*
+		for(i=1;i<=100;i++){		//直行
+		car_left(200);
+		car_right(175);	    
+		} 
+		for(i=1 ;i<=50;i++)			 //恢复车头 旋转1/4圈						  60	50
+		{
+			car_left(50);	  //50
+			car_right(200);
+		}
+
+		for(i=1;i<=255;i++){			 //旋转1圈大概时间  667多了1/4			543		 453			520	500	510
+		 	car_left(200);
+		    car_right(95);
+			} 
+		for(i=1;i<=543;i++){			 //旋转1圈大概时间  667多了1/4			543		 453			520	500	510			 543 570	 543
+		 	car_left(95);
+		    car_right(200);
+			} 
+
+		 for(i=1;i<=255;i++){			 //旋转1圈大概时间  667多了1/4			543		 453			520	500	510
+		 	car_left(200);
+		    car_right(95);
+			} 
+		for(i=1 ;i<=50;i++)			 //快速恢复车头 旋转1/4圈	尚未验证  134	   60	50	   	40
+		{
+		car_left(50);			 //50
+		car_right(200);
+		}
+
+		for(i=1;i<=100;i++){			 //直行
+			car_left(200);
+			car_right(175);	    
+		}  	 */
+
+/********************************************
+		//匀速
+		GPIO_SetBits(GPIOC, GPIO_Pin_5);
+        delay_nus(1495);      // 逆时针转动	   v=200
+        GPIO_ResetBits(GPIOC, GPIO_Pin_5);
+
+        // 右轮控制（PC3）
+        GPIO_SetBits(GPIOC, GPIO_Pin_3);
+        delay_nus(1200);     // 顺时针转动 v=95
+        GPIO_ResetBits(GPIOC, GPIO_Pin_3);
+
+        // 维持PWM周期
+        delay_nms(20);  
+***/	
+
+
+	
+		  
+	           
+
+	   
+
+
+
+
+/********************************************
+int main(void)	{
+
+Open_Init(); //开发板初始化函数
+printf("Program Running!\r\n");
+
+
+while (1)
+{   
+ 
+
+
+ // GPIO_ResetBits(GPIOC,GPIO_Pin_4);//PB4 输出低电平
+  GPIO_ResetBits(GPIOC,GPIO_Pin_5);//PC5 输出低电平	    低电平是亮灯，高电平熄灯
+    GPIO_SetBits(GPIOC,GPIO_Pin_3);//PB3 输出高电平
+	GPIO_SetBits(GPIOC,GPIO_Pin_4);//PB4 输出高电平
+  delay_nms(500);//延时500ms
+    GPIO_SetBits(GPIOC,GPIO_Pin_5);//PC5 输出高电平
+  //  GPIO_ResetBits(GPIOC,GPIO_Pin_5);//PC5 输出低电平
+   GPIO_ResetBits(GPIOC,GPIO_Pin_3);//PB3 输出低电平
+   GPIO_SetBits(GPIOC,GPIO_Pin_4);//PB4 输出高电平
+ 
+  delay_nms(500);//延时500ms
+      GPIO_SetBits(GPIOC,GPIO_Pin_3);//PB3 输出高电平
+   //GPIO_ResetBits(GPIOC,GPIO_Pin_3);//PB3 输出低电平
+  GPIO_ResetBits(GPIOC,GPIO_Pin_4);//PB4 输出低电平
+  GPIO_SetBits(GPIOC,GPIO_Pin_5);//PC5 输出高电平
+
+  delay_nms(500);//延时500ms									//PC4引脚的灯的控制有问题
+  GPIO_SetBits(GPIOC,GPIO_Pin_3);//PC3 输出高电平
+  GPIO_ResetBits(GPIOC,GPIO_Pin_4);//PB4 输出低电平					 
+  GPIO_SetBits(GPIOC,GPIO_Pin_5);//PC5 输出高电平 
+  
+    delay_nms(500);//延时500ms
+  GPIO_ResetBits(GPIOC,GPIO_Pin_3);//PB3 输出低电平
+
+	   GPIO_SetBits(GPIOC,GPIO_Pin_4);//PC4 输出高电平	 
+  GPIO_ResetBits(GPIOC,GPIO_Pin_5);//PB5 输出低电平
+
+    
+  
+
+
+
+  
+
+
+	   }
+	   }
+   *******************************************/
+
+
+int sensor(void)
+{   float blue;
+	float red;
+	float green;
+	float max_min;
+	int sval;
+	float max;
+	float min;
+	//测红光返回的电压值					PA1
+	GPIO_ResetBits(GPIOA,GPIO_Pin_1);
+	delay_nms(50);
+	red=(float) ADC_ConvertedValue/4096.0*3.3;
+	printf("\r\n red The current AD value = %f V \r\n",red); 
+	GPIO_SetBits(GPIOA,GPIO_Pin_1);
+	max=red;
+	min=red;
+	//测蓝光返回的电压值				 PA3
+	GPIO_ResetBits(GPIOA,GPIO_Pin_3);
+	delay_nms(50);	  
+	blue=(float) ADC_ConvertedValue/4096.0*3.3;
+	printf("\r\n blue The current AD value = %f V \r\n",blue); 
+	GPIO_SetBits(GPIOA,GPIO_Pin_3);
+	if(min>blue)
+	{min=blue;
+	}
+	 if(max<blue)
+	{max=blue;
+	}
+	//测绿光返回的电压值				 PA2
+	GPIO_ResetBits(GPIOA,GPIO_Pin_2);
+	delay_nms(50);	  
+	green =(float) ADC_ConvertedValue/4096.0*3.3;
+	printf("\r\n green The current AD value = %f V \r\n",green); 
+	GPIO_SetBits(GPIOA,GPIO_Pin_2);	
+	if(min>green)
+	{min=green;
+	}
+	 if(max<green)
+	{max=green;
+	}
+	max_min=max-min;
+	 
+	if (red >0.65&&red <0.8  && blue<0.95 && blue > 0.8 && green > 0.8&&green<0.95){
+	  //红色       
+		sval= 2;	  }
+	else if(red>0.65 &&red < 0.8&& blue>0.65 &&blue < 0.8 && green>0.65 &&green < 0.8&&max_min<0.1)
+	{	   //白色
+	   sval=5;
+	}  	
+	
+    else if (red >0.7&&red < 0.8 && blue < 0.9&&blue > 0.75 && green > 0.6&&green < 0.75){
+	//绿色       
+		sval= 3;	 }
+    else if( red >0.85&&red < 1.0 && blue >0.7 && blue < 0.85 && green >0.75 && green < 0.9){
+       	 //蓝色
+		sval=1;	  }	
+			 
+			  
+		/*
+    else if (red > 1.3 && blue > 1.3 && green > 1.1){
+	//棕色        
+		sval= 4;					   }	  */
+    else{     
+		sval=6;		 }
+	printf("\r\n the current return %d \r\n ",sval);
+	return sval;
+}
+	
+/********************************************
+*函数名：int judge(void)
+*函数功能：用于通过读入sensor函数返回的值来，通过某个颜色出现的次数来判断识别的颜色
+*函数参数说明：void
+*函数返回值：1-blue 2-red 3-green 0-不能判断
+*******************************************/
+   
+int judge(void)
+{
+	int cur; //保存当前获取的颜色 1-blue 2-red 3-green
+	int jblue=0;
+	int jred=0;
+	int jgreen=0;
+	int jbrown=0;
+	int jwhite=0;
+	int jval;
+	int jmax=0;
+	int i;
+	for(i=0;i<5;i++)
+	{
+		cur=sensor();								    
+		switch(cur)
+		{
+			case 1 :
+			jblue++;
+			break;
+			case 2 :
+			jred++;
+			break;
+			case 3 :
+			jgreen++;
+			break  ;
+			case 4:
+			jbrown++;	
+			break;	
+			case 5:
+			jwhite++;
+			break;	
+			default :
+			printf("\r\n wrong return \r\n");
+			break;
+		}
+	}
+	if(jblue==0&&jred==0&&jgreen==0&&jwhite==0)					 
+	{jval=6;
+	return jval;}
+	jmax=jblue;
+	jval=1;
+	if(jmax<jred) 
+	{
+		jmax=jred;
+		jval=2;
+	}
+	if(jmax<jgreen)  
+	{
+		jmax=jgreen;
+		jval=3;
+	}
+	if(jmax<jbrown)
+	{		
+	jmax=jbrown;
+	jval=4;
+	}
+	if(jmax<jwhite)
+	{jmax=jwhite;
+	jval=5;
+	}
+
+	return jval;
+}
+ 	  
+int main(void)
+{
+	int val,i,j,last;
+	Open_Init();
+// ADC 初始化
+	ADC1_Init();
+	printf("\r\n ----这是一个ADC实验(DMA传输)-颜色识别---\r\n");
+	while (1)
+	{	val=judge();
+		//val=sensor();  //不取平均
+		printf("\r\n the current return %d \r\n ",val);
+		last=2;//上一次为
+		switch(val)
+		{
+		    case 1 :	
+			printf("\r\n main blue \r\n");
+			 
+			//临时
+			last=1;	
+			break;
+			case 2 :  
+			printf(" \r\n  main red \r\n");	    
+
+			last=3;
+			break;
+	 		case 3 :	 //掉头
+
+			printf("\r\n main green \r\n");
+			last= 3;
+			break;
+			case 5:
+			printf("\r\n main white \r\n");
+	 
+			last=5;					   
+			break;			
+			default :
+			  printf("\r\n  main can't judge color \r\n");		   
+			break;
+		}
+	}
+}
+
+
+
+/*	  
+int main(void)
+{
+	int val,i,j,last;
+	Open_Init();
+// ADC 初始化
+	ADC1_Init();
+	printf("\r\n ----这是一个ADC实验(DMA传输)-颜色识别---\r\n");
+	while (1)
+	{	val=judge();
+		//val=sensor();  //不取平均
+		printf("\r\n the current return %d \r\n ",val);
+		last=2;//上一次为
+		switch(val)
+		{
+		    case 1 :	
+			printf("\r\n main blue \r\n");
+			
+			if(last==1)
+			{//直行
+			    for(i=1;i<=50;i++){		//直行			  直行
+		        car_left(200);
+		        car_right(175);	
+				    
+		        } 
+			}	
+			else{	   //掉头
+			    for(i=1 ;i<=5;i++)			 //恢复车头 旋转1/2圈		起步				  60	50
+		        {
+			        car_left(200);	  //50
+			        car_right(175);
+		        }
+			    for(i=1 ;i<=120;i++)			 //恢复车头 旋转1/2圈	转弯		//90			  60	50
+		        {
+			        car_left(1200);	  //50		10
+			        car_right(30);		   //350 600
+		        }
+			    for(i=1;i<=50;i++){		//直行			  直行
+		            car_left(200);
+		            car_right(175);	    
+		        } 	   
+			    last=1;
+			}				 
+			//临时
+			last=1;	
+			break;
+			case 2 :  
+			printf(" \r\n  main red \r\n");	    
+			
+				  
+			if(last==3)
+			{ continue;
+			}
+			else{	   
+				for(i=1;i<=50;i++){	//直行	  
+		        car_left(200);
+		        car_right(175);	    
+		        }
+				last=2;
+			}	
+			//临时		
+			last=2;
+			break;
+			case 3 :	 //掉头
+
+			printf("\r\n main green \r\n");
+			  
+			//直行
+			if(testRight()==1)
+		{ 	Forward(10,200);
+		}
+		else{
+
+			for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/4圈	尚未验证  134	   60	50	   	40
+			{
+				car_left(10);			 //50
+				car_right(200);
+			}//左转
+
+			if(testRight()!=1)
+			{ 
+			 	for(j=1 ;j<=80;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+				{
+					car_left(10);			 //50
+					car_right(200);
+				}//直接转180度
+
+				if(testRight()!=1){
+					for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+					{
+						car_left(200);			 //50
+						car_right(10);
+					}//右转90度
+				}
+				else{
+				  	Forward(50,200);
+					for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+						{
+							car_left(10);			 //50
+							car_right(200);
+						}//左转90度
+				}
+			}
+			else{//没有障碍正常转
+				Forward(30,200);
+				for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+					{
+						car_left(200);			 //50
+						car_right(10);
+					}//右转90度
+			    Forward(30,200);
+				
+
+			}
+			
+		}
+		 
+
+
+		
+		
+			last=3;
+			break;
+ 
+			case 5:
+			printf("\r\n main white \r\n");
+		
+			//右转
+			for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+					{
+						car_left(200);			 //50
+						car_right(10);
+					}//右转90度		 
+			last=5;					   
+			break;			
+			default :
+			  printf("\r\n  main can't judge color \r\n");	
+			  	   	  Forward(10,200);
+			break;
+		}
+	}
+}
+
+*/		
+
+
+	/*
+
+int main(void)		
+{
+	int val,i,j,last;
+	Open_Init();
+// ADC 初始化
+	ADC1_Init();
+	printf("\r\n ----这是一个ADC实验(DMA传输)-颜色识别---\r\n");
+	while(1)
+	{		 
+	 //直行
+			if(testRight()==1)
+		{ 	Forward(10,200);	  
+		}
+		else{
+			printf("1");
+			for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/4圈	尚未验证  134	   60	50	   	40
+			{
+				car_left(10);			 //50
+				car_right(200);
+			}//左转
+
+			if(testRight()!=1)
+			{ printf("1");
+			 	for(j=1 ;j<=80;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+				{
+					car_left(10);			 //50
+					car_right(200);
+				}//直接转180度
+
+				if(testRight()!=1){
+				printf("1");
+					for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+					{
+						car_left(200);			 //50
+						car_right(10);
+					}//右转90度
+				}
+				else{
+				  	Forward(50,200);
+					for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+						{
+							car_left(10);			 //50
+							car_right(200);
+						}//左转90度
+				}
+			}
+			else{//没有障碍正常转
+				Forward(20,200);
+				for(j=1 ;j<=35;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+					{
+						car_left(200);			 //50
+						car_right(10);
+					}//右转90度
+			  
+				
+
+			}
+			
+		}
+	}
+
+	}
+	 	*/
+/*
+int main(void)
+{
+	Open_Init();
+// ADC 初始化
+	ADC1_Init();
+	printf("\r\n ----这是一个ADC实验(DMA传输)-颜色识别---\r\n");
+	while(1)
+	{
+		
+		ADC_ConvertedValueLocal =(float) ADC_ConvertedValue/4096.0*3.3;
+		printf("\r\n The current AD value = %f V \r\n",ADC_ConvertedValueLocal); 
+		delay_nms(1000);
+	}
+}
+
+*/
+	
+	
+
+
