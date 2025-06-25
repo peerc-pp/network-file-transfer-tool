@@ -435,8 +435,9 @@ public class MainViewController {
 
         downloadTask.setOnFailed(e -> {
             logError("文件下载失败", downloadTask.getException());
-            reconnectAndResume(() -> handleDownloadButton());
             setButtonsDisabled(false);
+            reconnectAndResume(() -> handleDownloadButton());
+
             unbindProgress();
         });
 

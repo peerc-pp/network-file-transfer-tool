@@ -1,0 +1,173 @@
+/*
+int main(void)
+{
+	int val,i,j,last;
+	Open_Init();
+// ADC 初始化
+	ADC1_Init();
+	printf("\r\n ----这是一个ADC实验(DMA传输)-颜色识别---\r\n");
+	while (1)
+	{
+	
+	
+	
+	
+		
+		val=judge();
+		//val=sensor();  //不取平均
+		printf("\r\n the current return %d \r\n ",val);
+		last=2;//上一次为
+		switch(val)
+		{
+		    case 1 :	
+			printf("\r\n main blue \r\n");
+			/*
+			if(last==1)
+			{//直行
+			    for(i=1;i<=50;i++){		//直行			  直行
+		        car_left(200);
+		        car_right(175);	
+				    
+		        } 
+			}	
+			else{	   //掉头
+			    for(i=1 ;i<=5;i++)			 //恢复车头 旋转1/2圈		起步				  60	50
+		        {
+			        car_left(200);	  //50
+			        car_right(175);
+		        }
+			    for(i=1 ;i<=120;i++)			 //恢复车头 旋转1/2圈	转弯		//90			  60	50
+		        {
+			        car_left(30);	  //50		10
+			        car_right(1200);		   //350 600
+		        }
+			    for(i=1;i<=50;i++){		//直行			  直行
+		            car_left(200);
+		            car_right(175);	    
+		        } 	   
+			    last=1;
+			}		*/
+			/*
+			//临时
+			last=1;	
+			break;
+			case 2 :  
+			printf(" \r\n  main red \r\n");	    
+			/*
+			
+			if(last==3)
+			{ continue;//
+			}
+			else{	   
+				for(i=1;i<=50;i++){	vv	//直行	    m
+		        car_left(200);
+		        car_right(175);	    
+		        }
+				last=2;
+			}	*/
+			//临时		 
+			/*
+			last=2;
+			break;
+			case 3 :	 //掉头
+
+			printf("\r\n main green \r\n");
+			/*
+			//直行
+			if(testRight()==1)
+		{ 	Forward(10,200);
+		}
+		else{
+
+			for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/4圈	尚未验证  134	   60	50	   	40
+			{
+				car_left(10);			 //50
+				car_right(200);
+			}//左转
+
+			if(testRight()!=1)
+			{ 
+			 	for(j=1 ;j<=80;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+				{
+					car_left(10);			 //50
+					car_right(200);
+				}//直接转180度
+
+				if(testRight()!=1){
+					for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+					{
+						car_left(200);			 //50
+						car_right(10);
+					}//右转90度
+				}
+				else{
+				  	Forward(50,200);
+					for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+						{
+							car_left(10);			 //50
+							car_right(200);
+						}//左转90度
+				}
+			}
+			else{//没有障碍正常转
+				Forward(50,200);
+				for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+					{
+						car_left(200);			 //50
+						car_right(10);
+					}//右转90度
+			    Forward(50,200);
+				
+
+			}
+			
+		}
+		 */
+
+
+
+			/*	  旧
+			for(i=1 ;i<=5;i++)			 //恢复车头 旋转1/2圈		起步				  60	50
+		    {
+			car_left(200);	  //50
+			car_right(175);
+		   }
+			for(i=1 ;i<=120;i++)			 //恢复车头 旋转1/2圈	转弯		//90			  60	50
+		    {
+			car_left(30);	  //50		10
+			car_right(1200);		   //350 600
+		   }
+			for(i=1;i<=50;i++){		//直行			  直行
+		    car_left(200);
+		    car_right(175);	    
+		    } 	   */
+			/*
+			last=3;
+			break;
+			case 4:
+			printf("\r\n main brown \r\n");
+			/*
+			for(i=1;i<=400;i++){		//自转
+		    car_left(20);
+		    car_right(500);	    
+		    } 	
+			break;
+			case 5:
+			printf("\r\n main white \r\n");
+			//右转
+			for(j=1 ;j<=40;j++)			 //快速恢复车头 旋转1/2圈	尚未验证  134	   60	50	   	40
+					{
+						car_left(200);			 //50
+						car_right(10);
+					}//右转90度
+			last=5;
+			break;			
+			default :
+			printf("\r\n  main can't judge color \r\n");		   */
+			/*
+			break;
+		}
+	}
+}
+
+		

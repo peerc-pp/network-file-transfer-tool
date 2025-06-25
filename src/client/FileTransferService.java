@@ -74,13 +74,13 @@ public class FileTransferService {
                 return fileList; // 如果服务器没文件，返回空列表
             }
             String[] lines = response.split("\n");
-            for (String line : lines) {
-                String[] parts = line.split("\\|"); // 注意：'|'是特殊字符，需要转义
-                if (parts.length == 3) {
-                    String name = parts[0];
-                    long size = Long.parseLong(parts[1]);
-                    long lastModified = Long.parseLong(parts[2]);
-                    fileList.add(new UIFile(name, size, lastModified));// 使用新的构造函数来创建包含完整信息的UIFile对象
+//            for (String line : lines) {
+//                String[] parts = line.split("\\|"); // 注意：'|'是特殊字符，需要转义
+//                if (parts.length == 3) {
+//                    String name = parts[0];
+//                    long size = Long.parseLong(parts[1]);
+//                    long lastModified = Long.parseLong(parts[2]);
+//                    fileList.add(new UIFile(name, size, lastModified));// 使用新的构造函数来创建包含完整信息的UIFile对象
 
             // 跳过第一行（标题）
             for (int i = 1; i < lines.length; i++) {
@@ -94,11 +94,13 @@ public class FileTransferService {
                         fileList.add(new UIFile(name, size, lastModified));
                     }
                 }
-            }}return fileList;}
-            }
+
+
+                   }return fileList;
+
         }
 
-        return fileList;
+//        return fileList;
     }
 
     // 单文件上传准备
