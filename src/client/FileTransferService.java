@@ -181,7 +181,6 @@ public class FileTransferService {
         dos.flush();
         return dos;
     }
-
     // 断点下载
     public long prepareDownloadResume(String name, long have) throws IOException {
         dos.writeUTF("DOWNLOAD_RESUME");

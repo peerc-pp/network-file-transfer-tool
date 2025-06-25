@@ -200,8 +200,6 @@ public class MainViewController {
             protected Void call() throws Exception {
                 long existing = transferService.queryUploadedBytes(selectedFile.getName());
                 DataOutputStream dos = transferService.prepareUploadResume(selectedFile, existing);
-
-
                 try (RandomAccessFile raf = new RandomAccessFile(selectedFile, "r")) {
                     raf.seek(existing);
                     byte[] buf = new byte[8192];
@@ -224,13 +222,6 @@ public class MainViewController {
             }
         };
 
-        uploadTask.setOnFailed(e -> {
-
-            reconnectAndResume(() -> handleUploadButton());
-        });
-
-
-
         // --- 绑定和事件处理部分保持不变 ---
         progressBar.progressProperty().bind(uploadTask.progressProperty());
         progressLabel.textProperty().bind(
@@ -251,6 +242,7 @@ public class MainViewController {
             setButtonsDisabled(false);
             progressBar.progressProperty().unbind();
             progressLabel.textProperty().unbind();
+            reconnectAndResume(() -> handleUploadButton());
             updateProgress(0);
         });
 
@@ -304,9 +296,6 @@ public class MainViewController {
                 return null;
             }
         };
-
-
-
         // --- 绑定和事件处理部分与上传逻辑相同 ---
         progressBar.progressProperty().bind(downloadTask.progressProperty());
         progressLabel.textProperty().bind(
