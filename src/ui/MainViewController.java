@@ -22,6 +22,9 @@ import client.FileTransferService;
 
 import javax.swing.*;
 
+import javafx.scene.control.SelectionMode;
+import java.util.stream.Collectors;
+
 
 public class MainViewController {
 
@@ -69,6 +72,9 @@ public class MainViewController {
         remoteFileNameColumn.setCellFactory(column -> new FileIconCell()); // 应用自定义单元格
         remoteFileSizeColumn.setCellValueFactory(new PropertyValueFactory<>("size"));
         remoteFileDateColumn.setCellValueFactory(new PropertyValueFactory<>("lastModified"));
+        //qjr_add
+        localFileTable.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
+        remoteFileTable.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
 
         localFileTable.setRowFactory(tv -> {
             TableRow<UIFile> row = new TableRow<>();
@@ -76,12 +82,31 @@ public class MainViewController {
                 if (event.getClickCount() == 2 && (!row.isEmpty())) {
                     UIFile rowData = row.getItem();
                     File file = rowData.getOriginalFile();
-                    if (file.isDirectory()) {
+                    if (file != null && file.isDirectory()) {
                         loadLocalFiles(file); // 双击目录，进入该目录
                     }
                 }
             });
             return row;
+        });
+
+        // 在 initialize() 方法中添加选择监听器：
+        localFileTable.getSelectionModel().selectedItemProperty().addListener((obs, oldSelection, newSelection) -> {
+            int count = localFileTable.getSelectionModel().getSelectedItems().size();
+            if (count > 1) {
+                uploadButton.setText("上传 (" + count + ") ->");
+            } else {
+                uploadButton.setText("上传 ->");
+            }
+        });
+
+        remoteFileTable.getSelectionModel().selectedItemProperty().addListener((obs, oldSelection, newSelection) -> {
+            int count = remoteFileTable.getSelectionModel().getSelectedItems().size();
+            if (count > 1) {
+                downloadButton.setText("<- 下载 (" + count + ")");
+            } else {
+                downloadButton.setText("<- 下载");
+            }
         });
 
         // 【新功能】为本地文件表格设置双击和右键菜单
@@ -92,7 +117,6 @@ public class MainViewController {
 
         // 初始时禁用部分按钮
         setButtonsDisabled(true);
-        loadLocalFiles(new File(System.getProperty("user.dir"))); // 加载当前目录文件
 
         // 加载用户的主目录作为初始目录
         currentLocalDirectory = new File(System.getProperty("user.home"));
@@ -101,22 +125,6 @@ public class MainViewController {
 
     // ================== 【新功能实现】双击导航 ==================
     private void setupLocalFileTableInteractions() {
-        localFileTable.setRowFactory(tv -> {
-            TableRow<UIFile> row = new TableRow<>();
-            row.setOnMouseClicked(event -> {
-                // 检查是否为双击事件
-                if (event.getClickCount() == 2 && (!row.isEmpty())) {
-                    UIFile rowData = row.getItem();
-                    File file = rowData.getOriginalFile();
-                    if (file != null && file.isDirectory()) {
-                        // 如果是目录，则加载该目录的内容
-                        loadLocalFiles(file);
-                    }
-                }
-            });
-            return row;
-        });
-
         // 为本地文件列表创建右键菜单
         ContextMenu localContextMenu = new ContextMenu();
         MenuItem uploadItem = new MenuItem("upload");
@@ -172,7 +180,7 @@ public class MainViewController {
         new Thread(task).start();
     }
 
-    // 新增：处理“向上”按钮点击事件
+    // 新增：处理"向上"按钮点击事件
     @FXML
     private void handleUpButton() {
         File parentDir = currentLocalDirectory.getParentFile();
@@ -181,15 +189,80 @@ public class MainViewController {
         }
     }
 
-
     @FXML
     private void handleUploadButton() {
-        UIFile selectedUiFile = localFileTable.getSelectionModel().getSelectedItem();
-        if (selectedUiFile == null || selectedUiFile.getOriginalFile() == null) {
-            showAlert("错误", "请先在左侧选择一个要上传的本地文件。");
+        ObservableList<UIFile> selectedFiles = localFileTable.getSelectionModel().getSelectedItems();
+        if (selectedFiles.isEmpty()) {
+            showAlert("错误", "请先在左侧选择要上传的文件。");
             return;
         }
+
+        // 过滤出实际的文件（排除目录和".."项）
+        List<File> filesToUpload = selectedFiles.stream()
+                .map(UIFile::getOriginalFile)
+                .filter(file -> file != null && file.isFile())
+                .collect(Collectors.toList());
+
+        if (filesToUpload.isEmpty()) {
+            showAlert("错误", "请选择有效的文件（不是文件夹）。");
+            return;
+        }
+
+        // 如果只有一个文件，使用原有的单文件上传逻辑
+        if (filesToUpload.size() == 1) {
+            // 调用原有的单文件上传逻辑
+            uploadSingleFile(new UIFile(filesToUpload.get(0)));
+            return;
+        }
+
+        // 批量上传
+        log("准备批量上传 " + filesToUpload.size() + " 个文件");
+        setButtonsDisabled(true);
+
+        Task<Void> batchUploadTask = new Task<>() {
+            @Override
+            protected Void call() throws Exception {
+                transferService.batchUpload(filesToUpload, (currentIndex, totalFiles, fileProgress) -> {
+                    // 计算总体进度
+                    double overallProgress = (currentIndex + fileProgress) / totalFiles;
+                    updateProgress(overallProgress, 1.0);
+
+                    // 更新消息
+                    String currentFileName = filesToUpload.get(currentIndex).getName();
+                    updateMessage(String.format("上传 %d/%d: %s (%.0f%%)",
+                            currentIndex + 1, totalFiles, currentFileName, fileProgress * 100));
+                });
+                return null;
+            }
+        };
+
+        // 绑定进度
+        progressBar.progressProperty().bind(batchUploadTask.progressProperty());
+        progressLabel.textProperty().bind(batchUploadTask.messageProperty());
+
+        batchUploadTask.setOnSucceeded(e -> {
+            log("批量上传完成！");
+            setButtonsDisabled(false);
+            handleRefreshButton();
+            unbindProgress();
+        });
+
+        batchUploadTask.setOnFailed(e -> {
+            logError("批量上传失败", batchUploadTask.getException());
+            setButtonsDisabled(false);
+            unbindProgress();
+        });
+
+        new Thread(batchUploadTask).start();
+    }
+
+    // 将原有的单文件上传逻辑抽取为独立方法
+    private void uploadSingleFile(UIFile selectedUiFile) {
         File selectedFile = selectedUiFile.getOriginalFile();
+        if (selectedFile == null) {
+            showAlert("错误", "选择的文件无效。");
+            return;
+        }
 
         log("准备上传文件: " + selectedFile.getName());
         setButtonsDisabled(true);
@@ -223,8 +296,6 @@ public class MainViewController {
             }
         };
 
-
-
         // --- 绑定和事件处理部分保持不变 ---
         progressBar.progressProperty().bind(uploadTask.progressProperty());
         progressLabel.textProperty().bind(
@@ -251,22 +322,72 @@ public class MainViewController {
         new Thread(uploadTask).start();
     }
 
-
-
     @FXML
     private void handleDownloadButton() {
-        UIFile selectedUiFile = remoteFileTable.getSelectionModel().getSelectedItem();
-        if (selectedUiFile == null) {
-            showAlert("错误", "请先在右侧选择一个要下载的服务器文件。");
+        ObservableList<UIFile> selectedFiles = remoteFileTable.getSelectionModel().getSelectedItems();
+        if (selectedFiles.isEmpty()) {
+            showAlert("错误", "请先在右侧选择要下载的文件。");
             return;
         }
-        String remoteFileName = selectedUiFile.getName();
+
+        List<String> fileNames = selectedFiles.stream()
+                .map(UIFile::getName)
+                .collect(Collectors.toList());
 
         File destinationDirectory = chooseDirectory();
         if (destinationDirectory == null) {
             log("用户取消了保存位置的选择。");
-            return; // 如果用户点击了取消，则中止整个下载流程
+            return;
         }
+
+        // 如果只有一个文件，使用原有的单文件下载逻辑
+        if (fileNames.size() == 1) {
+            downloadSingleFile(selectedFiles.get(0), destinationDirectory);
+            return;
+        }
+
+        // 批量下载
+        log("准备批量下载 " + fileNames.size() + " 个文件");
+        setButtonsDisabled(true);
+
+        Task<Void> batchDownloadTask = new Task<>() {
+            @Override
+            protected Void call() throws Exception {
+                transferService.batchDownload(fileNames, destinationDirectory,
+                        (currentIndex, totalFiles, fileProgress) -> {
+                            double overallProgress = (currentIndex + fileProgress) / totalFiles;
+                            updateProgress(overallProgress, 1.0);
+
+                            String currentFileName = fileNames.get(currentIndex);
+                            updateMessage(String.format("下载 %d/%d: %s (%.0f%%)",
+                                    currentIndex + 1, totalFiles, currentFileName, fileProgress * 100));
+                        });
+                return null;
+            }
+        };
+
+        progressBar.progressProperty().bind(batchDownloadTask.progressProperty());
+        progressLabel.textProperty().bind(batchDownloadTask.messageProperty());
+
+        batchDownloadTask.setOnSucceeded(e -> {
+            log("批量下载完成！");
+            setButtonsDisabled(false);
+            loadLocalFiles(currentLocalDirectory);
+            unbindProgress();
+        });
+
+        batchDownloadTask.setOnFailed(e -> {
+            logError("批量下载失败", batchDownloadTask.getException());
+            setButtonsDisabled(false);
+            unbindProgress();
+        });
+
+        new Thread(batchDownloadTask).start();
+    }
+
+    // 将原有的单文件下载逻辑抽取为独立方法
+    private void downloadSingleFile(UIFile selectedUiFile, File destinationDirectory) {
+        String remoteFileName = selectedUiFile.getName();
 
         log("准备下载文件: " + remoteFileName);
         setButtonsDisabled(true);
@@ -280,10 +401,6 @@ public class MainViewController {
                     throw new FileNotFoundException("服务器上未找到文件: " + remoteFileName);
                 }
 
-                File downloadsDir = new File("downloads");
-                if (!downloadsDir.exists()) {
-                    downloadsDir.mkdirs();
-                }
                 File outputFile = new File(destinationDirectory, remoteFileName);
 
                 // 2. 在Task内部执行文件接收循环，并更新进度
@@ -434,6 +551,7 @@ public class MainViewController {
             return null;
         }
     }
+
     @FXML
     private void handleSelectDirectoryButton() {
         File selectedDirectory = chooseDirectory();
@@ -481,6 +599,7 @@ public class MainViewController {
         alert.setContentText(content);
         alert.showAndWait();
     }
+
     class FileIconCell extends TableCell<UIFile, String> {
         private final HBox graphicBox = new HBox(5); // 5是图标和文字的间距
         private final ImageView iconView = new ImageView();
@@ -497,7 +616,6 @@ public class MainViewController {
             graphicBox.setAlignment(Pos.CENTER_LEFT); // 确保图标和文字垂直居中
             graphicBox.getChildren().addAll(iconView, label);
         }
-
 
         @Override
         protected void updateItem(String itemName, boolean empty) {
@@ -520,6 +638,4 @@ public class MainViewController {
             }
         }
     }
-
 }
-

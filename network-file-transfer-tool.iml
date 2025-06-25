@@ -6,16 +6,16 @@
       <sourceFolder url="file://$MODULE_DIR$/resource" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
     </content>
-    <orderEntry type="inheritedJdk" />
+    <orderEntry type="jdk" jdkName="openjdk-23" jdkType="JavaSDK" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module-library">
       <library>
         <CLASSES>
-          <root url="file://$MODULE_DIR$/../../../../openjfx-17.0.15_windows-x64_bin-sdk/javafx-sdk-17.0.15/lib" />
+          <root url="file://$MODULE_DIR$/../../../../../javafx-sdk-17.0.15/lib" />
         </CLASSES>
         <JAVADOC />
         <SOURCES />
-        <jarDirectory url="file://$MODULE_DIR$/../../../../openjfx-17.0.15_windows-x64_bin-sdk/javafx-sdk-17.0.15/lib" recursive="false" />
+        <jarDirectory url="file://$MODULE_DIR$/../../../../../javafx-sdk-17.0.15/lib" recursive="false" />
       </library>
     </orderEntry>
   </component>

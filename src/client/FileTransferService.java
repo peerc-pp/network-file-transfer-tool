@@ -6,11 +6,9 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import server.SecurityServerHandler;
 import common.FileIntegrityChecker;
-import javafx.concurrent.Task; // 导入 Task
 import ui.UIFile;
 
 public class FileTransferService {
@@ -18,10 +16,10 @@ public class FileTransferService {
     private DataOutputStream dos;
     private DataInputStream dis;
 
-    // 用于进度更新的回调接口
+    // 批量进度回调接口
     @FunctionalInterface
-    public interface ProgressUpdateCallback {
-        void onProgressUpdate(double progress);
+    public interface BatchProgressCallback {
+        void onProgress(int currentFileIndex, int totalFiles, double currentFileProgress);
     }
 
     public void connectAndAuthenticate(String host, int port, String username, String password) throws Exception {
@@ -29,16 +27,14 @@ public class FileTransferService {
         this.dis = new DataInputStream(socket.getInputStream());
         this.dos = new DataOutputStream(socket.getOutputStream());
 
-        // 使用重构后的认证逻辑
         boolean authenticated = handleAuthentication(username, password);
         if (!authenticated) {
-            disconnect(); // 认证失败，清理资源
+            disconnect();
             throw new Exception("认证失败！请检查用户名和密码。");
         }
     }
 
     private boolean handleAuthentication(String username, String password) throws IOException {
-        // ... (这是从原SecurityClientHandler精简和重构后的逻辑)
         String serverMessage = dis.readUTF();
         if (!"AUTH_REQUEST".equals(serverMessage)) return false;
 
@@ -46,26 +42,25 @@ public class FileTransferService {
         serverMessage = dis.readUTF();
 
         if ("NAME_SUCCESS".equals(serverMessage)) {
-            String passwordHash = SecurityServerHandler.sha1(password); // 复用sha1方法
+            String passwordHash = SecurityServerHandler.sha1(password);
             dos.writeUTF("AUTH " + passwordHash);
             serverMessage = dis.readUTF();
             return "AUTH_SUCCESS".equals(serverMessage);
         } else if ("REGISTER_REQUIRED".equals(serverMessage)) {
-            // 在GUI版本中，注册流程可以更复杂，这里简化为使用相同密码注册
             String passwordHash = SecurityServerHandler.sha1(password);
             dos.writeUTF("REGISTER " + passwordHash);
             serverMessage = dis.readUTF();
-            return "AUTH_SUCCESS".equals(serverMessage);
+            return "REGISTER_SUCCESS".equals(serverMessage);
         }
         return false;
     }
 
-
     public List<UIFile> getRemoteFileList(String host) throws IOException {
-        int udpPort = 9998; // 根据服务器设计
+        int udpPort = 9998;
         List<UIFile> fileList = new ArrayList<>();
+
         try (DatagramSocket socket = new DatagramSocket()) {
-            socket.setSoTimeout(5000); // 5秒超时
+            socket.setSoTimeout(5000);
             byte[] requestData = "LIST_FILES".getBytes();
             InetAddress address = InetAddress.getByName(host);
             DatagramPacket requestPacket = new DatagramPacket(requestData, requestData.length, address, udpPort);
@@ -76,99 +71,177 @@ public class FileTransferService {
             socket.receive(responsePacket);
 
             String response = new String(responsePacket.getData(), 0, responsePacket.getLength());
-            if (response.trim().isEmpty()) {
-                return fileList; // 如果服务器没文件，返回空列表
-            }
-
             String[] lines = response.split("\n");
-            for (String line : lines) {
-                String[] parts = line.split("\\|"); // 注意：'|'是特殊字符，需要转义
-                if (parts.length == 3) {
-                    String name = parts[0];
-                    long size = Long.parseLong(parts[1]);
-                    long lastModified = Long.parseLong(parts[2]);
 
-                    // 使用新的构造函数来创建包含完整信息的UIFile对象
-                    fileList.add(new UIFile(name, size, lastModified));
+            // 跳过第一行（标题）
+            for (int i = 1; i < lines.length; i++) {
+                String line = lines[i].trim();
+                if (!line.isEmpty()) {
+                    String[] parts = line.split("\\|");
+                    if (parts.length >= 3) {
+                        String name = parts[0];
+                        long size = Long.parseLong(parts[1]);
+                        long lastModified = Long.parseLong(parts[2]);
+                        fileList.add(new UIFile(name, size, lastModified));
+                    }
                 }
             }
         }
+
         return fileList;
     }
 
-    /**
-     * 【已修正】准备上传：发送指令和文件元数据，并返回可用的输出流。
-     * @param file 要上传的文件
-     * @return 用于写入文件数据的 DataOutputStream
-     * @throws IOException
-     */
+    // 单文件上传准备
     public DataOutputStream prepareUpload(File file) throws IOException {
         dos.writeUTF("UPLOAD");
         dos.writeUTF(file.getName());
         dos.writeLong(file.length());
-        dos.flush();
-        return dos; // 将流返回给Task使用
+        return dos;
     }
 
-    /**
-     * 【已修正】完成上传：接收并验证服务器返回的校验和。
-     * @param localFile 本地上传的文件，用于计算本地校验和
-     * @throws IOException
-     */
-    public void finishUpload(File localFile) throws IOException {
+    // 单文件上传完成
+    public void finishUpload(File file) throws IOException {
+        long checksum = FileIntegrityChecker.calculateCRC32(file);
+        dos.writeLong(checksum);
+        dos.flush();
+
         long serverChecksum = dis.readLong();
-        long localChecksum = FileIntegrityChecker.calculateCRC32(localFile);
-        if (serverChecksum != localChecksum) {
-            throw new IOException("文件校验失败！上传的文件可能已损坏。");
+        if (checksum != serverChecksum) {
+            throw new IOException("文件校验失败！");
         }
     }
 
-    // FileTransferService.java
-    public DataInputStream getInputStream() {
-        return this.dis;
-    }
+    // 批量上传
+    public void batchUpload(List<File> files, BatchProgressCallback callback) throws IOException {
+        dos.writeUTF("BATCH_UPLOAD");
+        dos.writeInt(files.size());
 
-    /**
-     * 【新增】准备下载：发送指令，接收文件大小
-     * @param remoteFileName 要下载的文件名
-     * @return 服务器上该文件的大小，如果文件不存在则返回-1
-     * @throws IOException
-     */
-    public long prepareDownload(String remoteFileName) throws IOException {
-        dos.writeUTF("DOWNLOAD");
-        dos.writeUTF(remoteFileName);
-        dos.flush();
-        return dis.readLong(); // 返回文件大小或-1
-    }
+        for (int i = 0; i < files.size(); i++) {
+            File file = files.get(i);
 
-    /**
-     * 【新增】完成下载：接收并验证校验和
-     * @param downloadedFile 刚刚下载到本地的文件
-     * @throws IOException
-     */
-    public void finishDownload(File downloadedFile) throws IOException {
-        long serverChecksum = dis.readLong();
-        long localChecksum = FileIntegrityChecker.calculateCRC32(downloadedFile);
-        if (serverChecksum != localChecksum) {
-            throw new IOException("文件校验失败！下载的文件可能已损坏。");
-        }
-        System.out.println("下载文件校验成功！");
-    }
+            // 发送文件信息
+            dos.writeUTF(file.getName());
+            dos.writeLong(file.length());
 
-    /**
-     * 向服务器发送退出指令，并关闭本地资源
-     * @throws IOException
-     */
-    public void disconnect() throws IOException {
-        try {
-            if (dos != null) {
-                dos.writeUTF("QUIT");
+            // 传输文件内容
+            try (FileInputStream fis = new FileInputStream(file)) {
+                byte[] buffer = new byte[8192];
+                int bytesRead;
+                long totalSent = 0;
+                long fileSize = file.length();
+
+                while ((bytesRead = fis.read(buffer)) != -1) {
+                    dos.write(buffer, 0, bytesRead);
+                    totalSent += bytesRead;
+
+                    // 更新进度
+                    double fileProgress = (double) totalSent / fileSize;
+                    if (callback != null) {
+                        callback.onProgress(i, files.size(), fileProgress);
+                    }
+                }
                 dos.flush();
             }
-        } finally {
-            if (dos != null) dos.close();
-            if (dis != null) dis.close();
-            if (socket != null && !socket.isClosed()) socket.close();
+
+            // 发送校验和
+            long checksum = FileIntegrityChecker.calculateCRC32(file);
+            dos.writeLong(checksum);
+            dos.flush();
+
+            // 等待服务器确认
+            long serverChecksum = dis.readLong();
+            if (checksum != serverChecksum) {
+                throw new IOException("文件校验失败: " + file.getName());
+            }
         }
+    }
+
+    // 单文件下载准备
+    public long prepareDownload(String fileName) throws IOException {
+        dos.writeUTF("DOWNLOAD");
+        dos.writeUTF(fileName);
+
+        long fileSize = dis.readLong();
+        return fileSize; // 如果是-1表示文件不存在
+    }
+
+    // 单文件下载完成
+    public void finishDownload(File file) throws IOException {
+        long serverChecksum = dis.readLong();
+        long localChecksum = FileIntegrityChecker.calculateCRC32(file);
+
+        if (serverChecksum != localChecksum) {
+            file.delete();
+            throw new IOException("文件校验失败！文件可能已损坏。");
+        }
+    }
+
+    // 批量下载
+    public void batchDownload(List<String> fileNames, File destinationDir, BatchProgressCallback callback) throws IOException {
+        dos.writeUTF("BATCH_DOWNLOAD");
+        dos.writeInt(fileNames.size());
+
+        // 发送所有文件名
+        for (String fileName : fileNames) {
+            dos.writeUTF(fileName);
+        }
+
+        // 接收每个文件
+        for (int i = 0; i < fileNames.size(); i++) {
+            String fileName = fileNames.get(i);
+            long fileSize = dis.readLong();
+
+            if (fileSize == -1) {
+                throw new IOException("文件未找到: " + fileName);
+            }
+
+            File outputFile = new File(destinationDir, fileName);
+
+            // 接收文件内容
+            try (FileOutputStream fos = new FileOutputStream(outputFile)) {
+                byte[] buffer = new byte[8192];
+                int bytesRead;
+                long totalRead = 0;
+
+                while (totalRead < fileSize) {
+                    int toRead = (int) Math.min(buffer.length, fileSize - totalRead);
+                    bytesRead = dis.read(buffer, 0, toRead);
+                    if (bytesRead == -1) break;
+
+                    fos.write(buffer, 0, bytesRead);
+                    totalRead += bytesRead;
+
+                    // 更新进度
+                    double fileProgress = (double) totalRead / fileSize;
+                    if (callback != null) {
+                        callback.onProgress(i, fileNames.size(), fileProgress);
+                    }
+                }
+            }
+
+            // 验证校验和
+            long serverChecksum = dis.readLong();
+            long localChecksum = FileIntegrityChecker.calculateCRC32(outputFile);
+
+            if (serverChecksum != localChecksum) {
+                outputFile.delete();
+                throw new IOException("文件校验失败: " + fileName);
+            }
+        }
+    }
+
+    public DataInputStream getInputStream() {
+        return dis;
+    }
+
+    public void disconnect() throws IOException {
+        if (dos != null) {
+            try {
+                dos.writeUTF("QUIT");
+            } catch (IOException ignored) {}
+            dos.close();
+        }
+        if (dis != null) dis.close();
+        if (socket != null) socket.close();
     }
 }

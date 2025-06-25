@@ -23,13 +23,13 @@ public class ClientSessionHandler implements Runnable {
             // 1. 首先进行身份认证
             if (!SecurityServerHandler.handleAuthentication(dis, dos)) {
                 System.out.println("认证失败，关闭会话: " + socket.getRemoteSocketAddress());
-                return; // 认证失败，此线程结束
+                return;
             }
             System.out.println("客户端 " + socket.getRemoteSocketAddress() + " 认证成功。");
 
-            // 2. 认证成功后，进入指令循环，等待客户端发送指令
+            // 2. 认证成功后，进入指令循环
             while (!socket.isClosed()) {
-                String command = dis.readUTF(); // 阻塞等待客户端发送指令
+                String command = dis.readUTF();
 
                 switch (command) {
                     case "UPLOAD":
@@ -37,12 +37,20 @@ public class ClientSessionHandler implements Runnable {
                         receiveFile(dis, dos);
                         break;
                     case "DOWNLOAD":
-                        System.out.println("收到 DOWNLOAD 指令 (功能待实现)");
-                        sendFile(dis, dos); // 下载功能的实现位置
+                        System.out.println("收到 DOWNLOAD 指令");
+                        sendFile(dis, dos);
+                        break;
+                    case "BATCH_UPLOAD":
+                        System.out.println("收到 BATCH_UPLOAD 指令");
+                        receiveBatchFiles(dis, dos);
+                        break;
+                    case "BATCH_DOWNLOAD":
+                        System.out.println("收到 BATCH_DOWNLOAD 指令");
+                        sendBatchFiles(dis, dos);
                         break;
                     case "QUIT":
                         System.out.println("客户端 " + socket.getRemoteSocketAddress() + " 请求断开连接。");
-                        return; // 结束此线程，try-with-resources会自动关闭所有资源
+                        return;
                     default:
                         System.out.println("收到未知指令: " + command);
                         break;
@@ -65,14 +73,7 @@ public class ClientSessionHandler implements Runnable {
         }
     }
 
-    // ClientSessionHandler.java
-
-    /**
-     * 【已修正】根据客户端请求，发送服务器上的文件，并在之后发送校验和
-     * @param dis 从客户端读取请求
-     * @param dos 向客户端发送文件和校验和
-     * @throws IOException
-     */
+    // 发送文件
     private void sendFile(DataInputStream dis, DataOutputStream dos) throws IOException {
         String requestedFileName = dis.readUTF();
         File fileToSend = new File("server_files", requestedFileName);
@@ -85,30 +86,29 @@ public class ClientSessionHandler implements Runnable {
 
             // 发送文件内容
             try (FileInputStream fis = new FileInputStream(fileToSend)) {
-                CRC32 crc = new CRC32(); // 创建CRC32实例
+                CRC32 crc = new CRC32();
                 byte[] buffer = new byte[8192];
                 int bytesRead;
                 while ((bytesRead = fis.read(buffer)) != -1) {
                     dos.write(buffer, 0, bytesRead);
-                    crc.update(buffer, 0, bytesRead); // 实时更新CRC
+                    crc.update(buffer, 0, bytesRead);
                 }
                 dos.flush();
-                checksum = crc.getValue(); // 获取最终的校验和
+                checksum = crc.getValue();
             }
 
-            // 【新增】发送文件的CRC32校验和
+            // 发送文件的CRC32校验和
             dos.writeLong(checksum);
             dos.flush();
 
             System.out.println("文件发送完毕: " + requestedFileName + ", 校验和: " + checksum);
         } else {
-            dos.writeLong(-1L); // 文件不存在，发送-1作为错误信号
+            dos.writeLong(-1L); // 文件不存在
             System.out.println("请求的文件不存在: " + requestedFileName);
         }
     }
 
-
-    // 从旧的FileServer中移过来的文件接收逻辑
+    // 接收文件
     private void receiveFile(DataInputStream dis, DataOutputStream dos) throws IOException {
         String fileName = dis.readUTF();
         long fileLength = dis.readLong();
@@ -131,9 +131,47 @@ public class ClientSessionHandler implements Runnable {
         }
 
         System.out.println("文件接收完毕: " + file.getAbsolutePath());
-        long checksum = FileIntegrityChecker.calculateCRC32(file);
-        dos.writeLong(checksum);
+
+        // 接收客户端的校验和
+        long clientChecksum = dis.readLong();
+
+        // 计算服务器端的校验和
+        long serverChecksum = FileIntegrityChecker.calculateCRC32(file);
+
+        // 发送服务器端的校验和给客户端
+        dos.writeLong(serverChecksum);
         dos.flush();
-        System.out.println("已发送校验和: " + checksum);
+
+        if (clientChecksum == serverChecksum) {
+            System.out.println("文件校验成功，校验和: " + serverChecksum);
+        } else {
+            System.out.println("警告：文件校验失败！客户端: " + clientChecksum + ", 服务器: " + serverChecksum);
+        }
+    }
+
+    // 批量接收文件
+    private void receiveBatchFiles(DataInputStream dis, DataOutputStream dos) throws IOException {
+        int fileCount = dis.readInt();
+        System.out.println("准备接收 " + fileCount + " 个文件");
+
+        for (int i = 0; i < fileCount; i++) {
+            System.out.println("接收第 " + (i + 1) + "/" + fileCount + " 个文件");
+            receiveFile(dis, dos);
+        }
+
+        System.out.println("批量文件接收完成");
+    }
+
+    // 批量发送文件
+    private void sendBatchFiles(DataInputStream dis, DataOutputStream dos) throws IOException {
+        int fileCount = dis.readInt();
+        System.out.println("准备发送 " + fileCount + " 个文件");
+
+        for (int i = 0; i < fileCount; i++) {
+            System.out.println("发送第 " + (i + 1) + "/" + fileCount + " 个文件");
+            sendFile(dis, dos);
+        }
+
+        System.out.println("批量文件发送完成");
     }
 }

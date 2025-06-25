@@ -1,9 +1,16 @@
 package common;
-// 3. 文件校验模块 (common.FileIntegrityChecker.java)
+
 import java.util.zip.CRC32;
 import java.io.*;
 
 public class FileIntegrityChecker {
+
+    /**
+     * 计算文件的CRC32校验和
+     * @param file 要计算校验和的文件
+     * @return CRC32校验和值
+     * @throws IOException 如果读取文件时发生错误
+     */
     public static long calculateCRC32(File file) throws IOException {
         try (FileInputStream fis = new FileInputStream(file)) {
             CRC32 crc = new CRC32();
@@ -16,6 +23,21 @@ public class FileIntegrityChecker {
         }
     }
 
+    /**
+     * 获取文件校验和的字符串表示（兼容旧代码）
+     * @param file 要计算校验和的文件
+     * @return 校验和的字符串表示
+     * @throws IOException 如果读取文件时发生错误
+     */
+    public static String getFileChecksum(File file) throws IOException {
+        return String.valueOf(calculateCRC32(file));
+    }
+
+    /**
+     * 验证文件完整性
+     * @param receivedFile 接收到的文件
+     * @param originalChecksum 原始校验和
+     */
     public static void verifyChecksum(File receivedFile, long originalChecksum) {
         try {
             long receivedChecksum = calculateCRC32(receivedFile);
